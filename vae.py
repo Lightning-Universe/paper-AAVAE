@@ -28,7 +28,7 @@ class VAE(pl.LightningModule):
     def __init__(
         self,
         kl_coeff: float,
-        latent_dim=128,
+        latent_dim=256,
         max_hidden=256,
         lr=1e-3,
         finetune=False,
@@ -91,6 +91,8 @@ class VAE(pl.LightningModule):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    # TODO organize args
+    parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
     parser.add_argument("--max_epochs", type=int, default=200)
@@ -110,7 +112,12 @@ if __name__ == "__main__":
         model = VAE.load_from_checkpoint(
             args.pretrained, lr=args.learning_rate, finetune=args.finetune
         )
-    model = VAE(lr=args.learning_rate, kl_coeff=kl_coeff, finetune=args.finetune)
+    model = VAE(
+        latent_dim=args.latent_dim,
+        lr=args.learning_rate,
+        kl_coeff=kl_coeff,
+        finetune=args.finetune,
+    )
 
     trainer = pl.Trainer(gpus=1, max_epochs=args.max_epochs)
     trainer.fit(model, dm)
