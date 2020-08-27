@@ -8,10 +8,14 @@ import torchvision.transforms as T
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
+
 from pl_bolts.datamodules import CIFAR10DataModule
+from pl_bolts.models.self_supervised.simclr.simclr_transforms import (
+    SimCLRTrainDataTransform,
+    SimCLREvalDataTransform,
+)
 
 from components import Encoder, Decoder
-from simclr_transforms import SimCLRTrainDataTransform, SimCLREvalDataTransform
 
 
 def reparameterize(mu, log_var):
