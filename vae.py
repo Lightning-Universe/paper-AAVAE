@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 import torchvision.transforms as T
@@ -22,9 +23,9 @@ def vae_loss(x, x_hat, mu, log_var):
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, latent_dim=128, hidden_dims=[32, 64], lr=1e-3):
+    def __init__(self, latent_dim=128, hidden_dims=[32, 64, 128, 256], lr=1e-3):
 
-        super().__init__()
+        super(VAE, self).__init__()
         self.save_hyperparameters()
 
         self.lr = lr
@@ -46,6 +47,7 @@ class VAE(pl.LightningModule):
                     nn.LeakyReLU(),
                 )
             )
+            in_channels = h_dim
         self.encoder = nn.Sequential(*encoder)
 
         self.fc_mu = nn.Linear(hidden_dims[-1] * 4, latent_dim)
@@ -54,6 +56,7 @@ class VAE(pl.LightningModule):
         self.decoder_in = nn.Linear(latent_dim, hidden_dims[-1] * 4)
 
         # construct decoder
+        hidden_dims.reverse()
         decoder = []
         for i in range(len(hidden_dims) - 1):
             decoder.append(
@@ -70,6 +73,7 @@ class VAE(pl.LightningModule):
                     nn.LeakyReLU(),
                 )
             )
+        self.decoder = nn.Sequential(*decoder)
         self.final_layer = nn.Sequential(
             nn.ConvTranspose2d(
                 hidden_dims[-1],
@@ -85,33 +89,33 @@ class VAE(pl.LightningModule):
             nn.Tanh(),
         )
 
-        def encode(self, x):
-            x = self.encoder(x)
-            x = x.flatten(x, start_dim=1)
+    def encode(self, x):
+        x = self.encoder(x)
+        x = x.flatten(start_dim=1)
 
-            mu = self.fc_mu(x)
-            log_var = self.fc_var(x)
-            return mu, log_var
+        mu = self.fc_mu(x)
+        log_var = self.fc_var(x)
+        return mu, log_var
 
-        def decode(self, z):
-            x_hat = self.decoder_in(z)
-            x_hat = x_hat.view(-1, 64, 2, 2)
-            x_hat = self.decoder(x_hat)
-            return self.final_layer(x_hat)
+    def decode(self, z):
+        x_hat = self.decoder_in(z)
+        x_hat = x_hat.view(-1, 256, 2, 2)
+        x_hat = self.decoder(x_hat)
+        return self.final_layer(x_hat)
 
-        def forward(self, x):
-            mu, log_var = self.encode(x)
-            z = reparameterize(mu, log_var)
-            return self.decode(z), mu, log_var
+    def forward(self, x):
+        mu, log_var = self.encode(x)
+        z = reparameterize(mu, log_var)
+        return self.decode(z), mu, log_var
 
-        def training_step(self, batch, batch_idx):
-            x, _ = batch
-            x_hat, mu, log_var = self.forward(x)
-            loss = vae_loss(x, x_hat, mu, log_var)
-            return pl.TrainResult(loss)
+    def training_step(self, batch, batch_idx):
+        x, _ = batch
+        x_hat, mu, log_var = self.forward(x)
+        loss = vae_loss(x, x_hat, mu, log_var)
+        return pl.TrainResult(loss)
 
-        def configure_optimizers(self):
-            return torch.optim.Adam(self.parameters(), lr=self.lr)
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=self.lr)
 
 
 if __name__ == "__main__":
