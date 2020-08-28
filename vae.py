@@ -36,11 +36,13 @@ class VAE(pl.LightningModule):
         max_hidden=256,
         lr=1e-3,
         finetune=False,
+        cosine=False,
         num_classes=10,
     ):
         super(VAE, self).__init__()
         self.save_hyperparameters()
         self.finetune = finetune
+        self.cosine = cosine
         self.kl_coeff = kl_coeff
         self.lr = lr
         self.encode = Encoder(
@@ -66,14 +68,16 @@ class VAE(pl.LightningModule):
         recon = F.binary_cross_entropy(x1_hat, x1)
         kl = kl_divergence(mu, log_var)
         loss = recon + self.kl_coeff * kl
+        logs = {"kl": kl, "recon": recon}
 
-        # TODO: experiment with cosine similarity
-        # something like
-        # if self.cosine:
-        #     z2, _, _, _ = self.forward(x2)
-        #     loss += F.cosine_similarity(z1, z2, dim=1)
+        if self.cosine:
+            z2, _, _, _ = self.forward(x2)
+            cosine = F.cosine_similarity(z1, z2, dim=1).mean()
+            logs["cosine"] = cosine
+            loss += cosine
 
-        return loss, {"loss": loss, "kl": kl, "recon": recon}
+        logs["loss"] = loss
+        return loss, logs
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
@@ -99,9 +103,10 @@ if __name__ == "__main__":
     parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
-    parser.add_argument("--max_epochs", type=int, default=200)
+    parser.add_argument("--max_epochs", type=int, default=100)
     parser.add_argument("--pretrained", type=str, default=None)
     parser.add_argument("--finetune", action="store_true")
+    parser.add_argument("--cosine", action="store_true")
 
     args = parser.parse_args()
 
@@ -113,6 +118,7 @@ if __name__ == "__main__":
     kl_coeff = args.batch_size / dm.num_samples
 
     if args.pretrained is not None:
+        # load checkpoint and potentially change lr and finetune
         model = VAE.load_from_checkpoint(
             args.pretrained, lr=args.learning_rate, finetune=args.finetune
         )
@@ -120,6 +126,7 @@ if __name__ == "__main__":
         latent_dim=args.latent_dim,
         lr=args.learning_rate,
         kl_coeff=kl_coeff,
+        cosine=args.cosine,
         finetune=args.finetune,
     )
 
