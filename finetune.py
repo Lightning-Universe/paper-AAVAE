@@ -15,26 +15,15 @@ from pl_bolts.models.self_supervised.simclr.simclr_transforms import (
     SimCLREvalDataTransform,
 )
 
-from components import Encoder, Decoder
 
 class FineTuner(pl.LightningModule):
-    def __init__(
-        self,
-        backbone
-        in_features,
-        lr=1e-3,
-        num_classes=10,
-        p=0.1,
-    ):
+    def __init__(self, backbone, in_features, lr=1e-3, num_classes=10, p=0.1):
         super().__init__()
         self.save_hyperparameters()
         self.backbone = backbone
         self.lr = lr
 
-        self.mlp = nn.Sequential(
-            nn.Dropout(p=p),
-            nn.Linear(in_features, num_classes)
-        )
+        self.mlp = nn.Sequential(nn.Dropout(p=p), nn.Linear(in_features, num_classes))
 
     def step(self, batch, batch_idx):
         (x1, x2), y = batch
@@ -44,7 +33,6 @@ class FineTuner(pl.LightningModule):
         loss = F.cross_entropy(logits, y)
         acc = FM.accuracy(logits, y)
         return loss, acc
-
 
     def training_step(self, batch, batch_idx):
         loss, acc = self.step(batch, batch_idx)
@@ -72,7 +60,6 @@ if __name__ == "__main__":
     dm.train_transforms = SimCLRTrainDataTransform(input_height=32)
     dm.test_transforms = SimCLREvalDataTransform(input_height=32)
     dm.val_transforms = SimCLREvalDataTransform(input_height=32)
-
 
     trainer = pl.Trainer(gpus=1, max_epochs=args.max_epochs)
     trainer.fit(model, dm)
