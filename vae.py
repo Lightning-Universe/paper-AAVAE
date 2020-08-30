@@ -15,7 +15,7 @@ from pl_bolts.models.self_supervised.simclr.simclr_transforms import (
     SimCLREvalDataTransform,
 )
 
-from components import Encoder, Decoder
+from resnet import resnet18_encoder, resnet18_decoder
 
 
 def reparameterize(mu, log_var):
@@ -30,39 +30,28 @@ def kl_divergence(mu, log_var):
 
 class VAE(pl.LightningModule):
     def __init__(
-        self,
-        kl_coeff: float,
-        latent_dim=256,
-        max_hidden=256,
-        lr=1e-3,
-        finetune=False,
-        cosine=False,
-        num_classes=10,
+        self, kl_coeff: float, latent_dim=256, max_hidden=256, lr=1e-3, cosine=False
     ):
         super(VAE, self).__init__()
         self.save_hyperparameters()
-        self.finetune = finetune
         self.cosine = cosine
         self.kl_coeff = kl_coeff
         self.lr = lr
-        self.encode = Encoder(
-            latent_dim, max_channels=max_hidden, num_classes=num_classes
-        )
-        self.decode = Decoder(latent_dim, max_channels=max_hidden)
+        self.encoder = resnet18_encoder()
+        self.decoder = resnet18_decoder(latent_dim=latent_dim)
+
+        self.fc_mu = nn.Linear(512, latent_dim)
+        self.fc_var = nn.Linear(512, latent_dim)
 
     def forward(self, x):
-        mu, log_var, _ = self.encode(x)
+        x = self.encode(x)
+        mu = self.fc_mu(x)
+        log_var = self.fc_var(x)
         z = reparameterize(mu, log_var)
-        return z, self.decode(z), mu, log_var
+        return z, self.decoder(z), mu, log_var
 
     def step(self, batch, batch_idx):
         (x1, x2), y = batch
-
-        if self.finetune:
-            _, _, logits = self.encode(x1)
-            loss = F.cross_entropy(logits, y)
-            acc = FM.accuracy(logits, y)
-            return loss, {"ce_loss": loss, "acc": acc}
 
         z1, x1_hat, mu, log_var = self.forward(x1)
         recon = F.binary_cross_entropy(x1_hat, x1)
@@ -103,25 +92,18 @@ if __name__ == "__main__":
     parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
-    parser.add_argument("--max_epochs", type=int, default=100)
-    parser.add_argument("--pretrained", type=str, default=None)
-    parser.add_argument("--finetune", action="store_true")
+    parser.add_argument("--max_epochs", type=int, default=500)
     parser.add_argument("--cosine", action="store_true")
 
     args = parser.parse_args()
 
-    dm = CIFAR10DataModule(batch_size=args.batch_size, num_workers=6)
+    dm = CIFAR10DataModule(data_dir="data", batch_size=args.batch_size, num_workers=6)
     dm.train_transforms = SimCLRTrainDataTransform(input_height=32)
     dm.test_transforms = SimCLREvalDataTransform(input_height=32)
     dm.val_transforms = SimCLREvalDataTransform(input_height=32)
 
     kl_coeff = args.batch_size / dm.num_samples
 
-    if args.pretrained is not None:
-        # load checkpoint and potentially change lr and finetune
-        model = VAE.load_from_checkpoint(
-            args.pretrained, lr=args.learning_rate, finetune=args.finetune
-        )
     model = VAE(
         latent_dim=args.latent_dim,
         lr=args.learning_rate,
