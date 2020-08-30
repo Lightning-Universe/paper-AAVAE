@@ -182,7 +182,7 @@ class ResNetDecoder(nn.Module):
         super().__init__()
 
         self.inplanes = 512
-        self.linear = nn.Linear(latent_dim, self.inplanes)
+        self.linear = nn.Linear(latent_dim, self.inplanes * 4 * 4)
 
         self.layer1 = self._make_layer(block, 256, layers[0], scale=2)
         self.layer2 = self._make_layer(block, 128, layers[1], scale=2)
@@ -207,9 +207,11 @@ class ResNetDecoder(nn.Module):
 
     def forward(self, x):
         x = self.linear(x)
-        x = x.view(x.size(0), 512, 1, 1)
-        # TODO: is this the best operation to invert avgpool?
-        x = F.interpolate(x, scale_factor=4)
+
+        # NOTE: replaced this by Linear(in_channels, 514 * 4 * 4)
+        # x = F.interpolate(x, scale_factor=4)
+
+        x = x.view(x.size(0), 512, 4, 4)
 
         x = self.layer1(x)
         x = self.layer2(x)

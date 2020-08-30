@@ -90,7 +90,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # TODO organize args
     parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
     parser.add_argument("--max_epochs", type=int, default=500)
     parser.add_argument("--cosine", action="store_true")
