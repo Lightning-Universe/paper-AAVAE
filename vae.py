@@ -44,7 +44,7 @@ class VAE(pl.LightningModule):
         self.fc_var = nn.Linear(512, latent_dim)
 
     def forward(self, x):
-        x = self.encode(x)
+        x = self.encoder(x)
         mu = self.fc_mu(x)
         log_var = self.fc_var(x)
         z = reparameterize(mu, log_var)
@@ -109,7 +109,6 @@ if __name__ == "__main__":
         lr=args.learning_rate,
         kl_coeff=kl_coeff,
         cosine=args.cosine,
-        finetune=args.finetune,
     )
 
     trainer = pl.Trainer(gpus=1, max_epochs=args.max_epochs)
