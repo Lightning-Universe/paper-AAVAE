@@ -25,21 +25,18 @@ def reparameterize(mu, log_var):
 
 
 def kl_divergence(mu, log_var):
-    return -0.5 * torch.mean(1 + log_var - mu ** 2 - log_var.exp())
+    return -0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp())
 
 
 class VAE(pl.LightningModule):
-    def __init__(
-        self, kl_coeff: float, latent_dim=256, max_hidden=256, lr=1e-3, cosine=False
-    ):
+    def __init__(self, kl_coeff=0.1, latent_dim=256, lr=1e-3, cosine=False):
         super(VAE, self).__init__()
         self.save_hyperparameters()
         self.cosine = cosine
-        self.kl_coeff = kl_coeff
         self.lr = lr
+        self.kl_coeff = kl_coeff
         self.encoder = resnet18_encoder()
         self.decoder = resnet18_decoder(latent_dim=latent_dim)
-
         self.fc_mu = nn.Linear(512, latent_dim)
         self.fc_var = nn.Linear(512, latent_dim)
 
@@ -54,8 +51,11 @@ class VAE(pl.LightningModule):
         (x1, x2), y = batch
 
         z1, x1_hat, mu, log_var = self.forward(x1)
-        recon = F.binary_cross_entropy(x1_hat, x1)
+
+        recon = F.mse_loss(x1_hat, x1)
         kl = kl_divergence(mu, log_var)
+        kl /= torch.numel(x1)  # normalize kl by number of elements in reconstruction
+
         loss = recon + self.kl_coeff * kl
         logs = {"kl": kl, "recon": recon}
 
@@ -63,7 +63,7 @@ class VAE(pl.LightningModule):
             z2, _, _, _ = self.forward(x2)
             cosine = F.cosine_similarity(z1, z2, dim=1).mean()
             logs["cosine"] = cosine
-            loss += cosine
+            loss += 1 - cosine
 
         logs["loss"] = loss
         return loss, logs
@@ -91,8 +91,9 @@ if __name__ == "__main__":
     # TODO organize args
     parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--learning_rate", type=float, default=3e-4)
-    parser.add_argument("--max_epochs", type=int, default=500)
+    parser.add_argument("--kl_coeff", type=float, default=0.03)
+    parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--max_epochs", type=int, default=300)
     parser.add_argument("--cosine", action="store_true")
 
     args = parser.parse_args()
@@ -102,13 +103,11 @@ if __name__ == "__main__":
     dm.test_transforms = SimCLREvalDataTransform(input_height=32)
     dm.val_transforms = SimCLREvalDataTransform(input_height=32)
 
-    kl_coeff = args.batch_size / dm.num_samples
-
     model = VAE(
         latent_dim=args.latent_dim,
         lr=args.learning_rate,
-        kl_coeff=kl_coeff,
         cosine=args.cosine,
+        kl_coeff=args.kl_coeff,
     )
 
     trainer = pl.Trainer(gpus=1, max_epochs=args.max_epochs)
