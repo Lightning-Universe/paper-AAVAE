@@ -1,5 +1,10 @@
 # VAE
 
+```bash
+python vae.py --prior normal --posterior normal
+python finetune path/to/checkpoint
+```
+
  * `vae.py` - VAE python module
  * `finetune.py` - VAE python module
  * `resnet.py` - ResNet based encoder and decoder architecture
