@@ -25,17 +25,10 @@ distributions = {
 
 class VAE(pl.LightningModule):
     def __init__(
-        self,
-        kl_coeff=0.03,
-        latent_dim=256,
-        lr=1e-4,
-        cosine=False,
-        prior="normal",
-        posterior="normal",
+        self, kl_coeff=0.03, latent_dim=256, lr=1e-4, prior="normal", posterior="normal"
     ):
         super(VAE, self).__init__()
         self.save_hyperparameters()
-        self.cosine = cosine
         self.lr = lr
         self.kl_coeff = kl_coeff
         self.encoder = resnet18_encoder()
@@ -118,7 +111,6 @@ if __name__ == "__main__":
     model = VAE(
         latent_dim=args.latent_dim,
         lr=args.learning_rate,
-        cosine=args.cosine,
         kl_coeff=args.kl_coeff,
         prior=args.prior,
         posterior=args.posterior,
