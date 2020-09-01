@@ -21,7 +21,7 @@ Model     | Prior (P) | Posterior (Q) | Reconstruct View | Val. Gini | Finetune 
 ---       | ---       | ---           | ---              | ---       | ---
 ResNet18  | Normal    | Normal        | None             | 0.416     | 43.1
 ResNet18  | Laplace   | Normal        | None             | 0.417     | 44.5
-ResNet18  | Normal    | Laplace       | None             | 0.448     | 44.1
+ResNet18  | Normal    | Laplace       | None             | 0.451     | 45.2
 ResNet18  | Normal    | Normal        | SimCLR           |           |
 ResNet18  | Laplace   | Normal        | SimCLR           |           |
 ResNet18  | Normal    | Laplace       | SimCLR           |           |
