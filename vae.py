@@ -17,19 +17,22 @@ from pl_bolts.models.self_supervised.simclr.simclr_transforms import (
 
 from resnet import resnet18_encoder, resnet18_decoder
 
-
-def reparameterize(mu, log_var):
-    std = torch.exp(0.5 * log_var)
-    eps = torch.randn_like(std)
-    return eps * std + mu
-
-
-def kl_divergence(mu, log_var):
-    return -0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp())
+distributions = {
+    "laplace": torch.distributions.Laplace,
+    "normal": torch.distributions.Normal,
+}
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, kl_coeff=0.1, latent_dim=256, lr=1e-3, cosine=False):
+    def __init__(
+        self,
+        kl_coeff=0.03,
+        latent_dim=256,
+        lr=1e-4,
+        cosine=False,
+        prior="normal",
+        posterior="normal",
+    ):
         super(VAE, self).__init__()
         self.save_hyperparameters()
         self.cosine = cosine
@@ -39,33 +42,38 @@ class VAE(pl.LightningModule):
         self.decoder = resnet18_decoder(latent_dim=latent_dim)
         self.fc_mu = nn.Linear(512, latent_dim)
         self.fc_var = nn.Linear(512, latent_dim)
+        self.prior = prior
+        self.posterior = posterior
 
     def forward(self, x):
         x = self.encoder(x)
         mu = self.fc_mu(x)
         log_var = self.fc_var(x)
-        z = reparameterize(mu, log_var)
-        return z, self.decoder(z), mu, log_var
+        p, q, z = self.sample(mu, log_var)
+        return z, self.decoder(z), p, q
+
+    def sample(self, mu, log_var):
+        std = torch.exp(log_var / 2)
+        p = distributions[self.prior](torch.zeros_like(mu), torch.ones_like(std))
+        q = distributions[self.posterior](mu, std)
+        z = q.rsample()
+        return p, q, z
 
     def step(self, batch, batch_idx):
-        (x1, x2), y = batch
+        (x, _), y = batch
 
-        z1, x1_hat, mu, log_var = self.forward(x1)
+        z, x_hat, p, q = self.forward(x)
 
-        recon = F.mse_loss(x1_hat, x1)
-        kl = kl_divergence(mu, log_var)
-        kl /= torch.numel(x1)  # normalize kl by number of elements in reconstruction
+        # reconstruction
+        recon = F.mse_loss(x_hat, x)
+
+        # KL divergence
+        kl = torch.sum(q.log_prob(z) - p.log_prob(z))
+        kl /= torch.numel(x)  # normalize kl by number of elements in reconstruction
 
         loss = recon + self.kl_coeff * kl
-        logs = {"kl": kl, "recon": recon}
 
-        if self.cosine:
-            z2, _, _, _ = self.forward(x2)
-            cosine = F.cosine_similarity(z1, z2, dim=1).mean()
-            logs["cosine"] = cosine
-            loss += 1 - cosine
-
-        logs["loss"] = loss
+        logs = {"kl": kl, "recon": recon, "loss": loss}
         return loss, logs
 
     def training_step(self, batch, batch_idx):
@@ -87,14 +95,18 @@ class VAE(pl.LightningModule):
 
 
 if __name__ == "__main__":
+    # TODO: model specific args and stuff
+
     parser = argparse.ArgumentParser()
-    # TODO organize args
     parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--kl_coeff", type=float, default=0.03)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--prior", default="normal")
+    parser.add_argument("--posterior", default="normal")
+
+    parser.add_argument("--batch_size", type=int, default=256)
+
     parser.add_argument("--max_epochs", type=int, default=300)
-    parser.add_argument("--cosine", action="store_true")
 
     args = parser.parse_args()
 
@@ -108,6 +120,8 @@ if __name__ == "__main__":
         lr=args.learning_rate,
         cosine=args.cosine,
         kl_coeff=args.kl_coeff,
+        prior=args.prior,
+        posterior=args.posterior,
     )
 
     trainer = pl.Trainer(gpus=1, max_epochs=args.max_epochs)
