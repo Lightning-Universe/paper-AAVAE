@@ -1,8 +1,14 @@
 # VAE
 
 ```bash
+# train vae
 python vae/vae.py --prior normal --posterior normal
+
+# finetune vae
 python vae/finetune.py path/to/checkpoint
+
+# measure gini sparsity
+python vae/gini_sparsity.py path/to/checkpoint
 ```
 
  * `vae/vae.py` - VAE python module
