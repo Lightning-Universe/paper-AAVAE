@@ -10,10 +10,6 @@ import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
 
 from pl_bolts.datamodules import CIFAR10DataModule
-from pl_bolts.models.self_supervised.simclr.simclr_transforms import (
-    SimCLRTrainDataTransform,
-    SimCLREvalDataTransform,
-)
 
 from resnet import resnet18_encoder, resnet18_decoder
 
@@ -53,7 +49,7 @@ class VAE(pl.LightningModule):
         return p, q, z
 
     def step(self, batch, batch_idx):
-        (x, _), y = batch
+        x, y = batch
 
         z, x_hat, p, q = self.forward(x)
 
@@ -104,9 +100,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dm = CIFAR10DataModule(data_dir="data", batch_size=args.batch_size, num_workers=6)
-    dm.train_transforms = SimCLRTrainDataTransform(input_height=32)
-    dm.test_transforms = SimCLREvalDataTransform(input_height=32)
-    dm.val_transforms = SimCLREvalDataTransform(input_height=32)
+    dm.train_transforms = T.Compose(
+        [
+            T.RandomCrop(32, padding=4, padding_mode="reflect"),
+            T.RandomHorizontalFlip(),
+            T.ToTensor(),
+        ]
+    )
+
+    dm.test_transforms = T.ToTensor()
+    dm.val_transforms = T.ToTensor()
 
     model = VAE(
         latent_dim=args.latent_dim,

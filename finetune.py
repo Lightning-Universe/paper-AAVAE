@@ -10,10 +10,6 @@ import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
 
 from pl_bolts.datamodules import CIFAR10DataModule
-from pl_bolts.models.self_supervised.simclr.simclr_transforms import (
-    SimCLRTrainDataTransform,
-    SimCLREvalDataTransform,
-)
 
 from vae import VAE
 
@@ -31,9 +27,9 @@ class FineTuner(pl.LightningModule):
         self.backbone.eval()
 
     def step(self, batch, batch_idx):
-        (x1, x2), y = batch
+        x, y = batch
         with torch.no_grad():
-            feats = self.backbone(x1)
+            feats = self.backbone(x)
         logits = self.mlp(feats)
         loss = F.cross_entropy(logits, y)
         acc = FM.accuracy(logits, y)
@@ -69,9 +65,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dm = CIFAR10DataModule(data_dir="data", batch_size=args.batch_size, num_workers=6)
-    dm.train_transforms = SimCLRTrainDataTransform(input_height=32)
-    dm.test_transforms = SimCLREvalDataTransform(input_height=32)
-    dm.val_transforms = SimCLREvalDataTransform(input_height=32)
+    dm.train_transforms = T.Compose(
+        [
+            T.RandomCrop(32, padding=4, padding_mode="reflect"),
+            T.RandomHorizontalFlip(),
+            T.ToTensor(),
+        ]
+    )
+    dm.test_transforms = T.ToTensor()
+    dm.val_transforms = T.ToTensor()
 
     trainer = pl.Trainer(gpus=1, max_epochs=args.max_epochs)
     trainer.fit(model, dm)
