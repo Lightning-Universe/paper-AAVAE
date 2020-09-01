@@ -9,6 +9,17 @@ python vae/finetune.py path/to/checkpoint
  * `vae/finetune.py` - Fintune python module
  * `vae/resnet.py` - ResNet based encoder and decoder architecture
 
+## Results
+
+Model     | Prior (P) | Posterior (Q) | Reconstruct View | Val. Gini | Finetune Val. Acc. 
+---       | ---       | ---           | ---              | ---       |
+ResNet18  | Normal    | Normal        | None             |           |
+ResNet18  | Laplace   | Normal        | None             |           |
+ResNet18  | Normal    | Laplace       | None             |           |
+ResNet18  | Normal    | Normal        | SimCLR           |           |
+ResNet18  | Laplace   | Normal        | SimCLR           |           |
+ResNet18  | Normal    | Laplace       | SimCLR           |           |
+
 ## ResNet VAE Architecture
 
 #### Encoder
