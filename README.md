@@ -1,13 +1,13 @@
 # VAE
 
 ```bash
-python vae.py --prior normal --posterior normal
-python finetune path/to/checkpoint
+python vae/vae.py --prior normal --posterior normal
+python vae/finetune.py path/to/checkpoint
 ```
 
- * `vae.py` - VAE python module
- * `finetune.py` - VAE python module
- * `resnet.py` - ResNet based encoder and decoder architecture
+ * `vae/vae.py` - VAE python module
+ * `vae/finetune.py` - Fintune python module
+ * `vae/resnet.py` - ResNet based encoder and decoder architecture
 
 ## ResNet VAE Architecture
 
