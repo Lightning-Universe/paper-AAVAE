@@ -97,6 +97,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=256)
 
     parser.add_argument("--max_epochs", type=int, default=300)
+    parser.add_argument("--gpus", default="1")
 
     args = parser.parse_args()
 
@@ -120,5 +121,5 @@ if __name__ == "__main__":
         posterior=args.posterior,
     )
 
-    trainer = pl.Trainer(gpus=1, max_epochs=args.max_epochs)
+    trainer = pl.Trainer(gpus=args.gpus, max_epochs=args.max_epochs)
     trainer.fit(model, dm)
