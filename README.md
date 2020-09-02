@@ -19,9 +19,9 @@ python vae/gini_sparsity.py path/to/checkpoint
 
 Model     | Prior (P) | Posterior (Q) | Reconstruct View | Val. Gini | Finetune Val. Acc. 
 ---       | ---       | ---           | ---              | ---       | ---
-ResNet18  | Normal    | Normal        | None             | 0.416     | 43.1
-ResNet18  | Laplace   | Normal        | None             | 0.417     | 44.5
-ResNet18  | Normal    | Laplace       | None             | 0.451     | 45.2
+ResNet18  | Normal    | Normal        | None             | 0.431     | 41.67
+ResNet18  | Laplace   | Normal        | None             | 0.449     | 40.91
+ResNet18  | Normal    | Laplace       | None             | 0.454     | 41.67
 ResNet18  | Normal    | Normal        | SimCLR           |           |
 ResNet18  | Laplace   | Normal        | SimCLR           |           |
 ResNet18  | Normal    | Laplace       | SimCLR           |           |
