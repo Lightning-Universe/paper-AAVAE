@@ -10,6 +10,7 @@ import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
 
 from pl_bolts.datamodules import CIFAR10DataModule
+from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 
 from resnet import resnet18_encoder, resnet18_decoder
 
@@ -105,11 +106,11 @@ if __name__ == "__main__":
             T.RandomCrop(32, padding=4, padding_mode="reflect"),
             T.RandomHorizontalFlip(),
             T.ToTensor(),
+            cifar10_normalization(),
         ]
     )
-
-    dm.test_transforms = T.ToTensor()
-    dm.val_transforms = T.ToTensor()
+    dm.test_transforms = T.Compose([T.ToTensor(), cifar10_normalization()])
+    dm.val_transforms = T.Compose([T.ToTensor(), cifar10_normalization()])
 
     model = VAE(
         latent_dim=args.latent_dim,
