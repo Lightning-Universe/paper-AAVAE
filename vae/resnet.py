@@ -275,9 +275,9 @@ class ResNetDecoder(nn.Module):
         self.inplanes = 512 * block.expansion
         self.linear = nn.Linear(latent_dim, self.inplanes * 4 * 4)
 
-        self.layer1 = self._make_layer(block, 512, layers[0], scale=2)
-        self.layer2 = self._make_layer(block, 256, layers[1], scale=2)
-        self.layer3 = self._make_layer(block, 128, layers[2], scale=2)
+        self.layer1 = self._make_layer(block, 256, layers[0], scale=2)
+        self.layer2 = self._make_layer(block, 128, layers[1], scale=2)
+        self.layer3 = self._make_layer(block, 64, layers[2], scale=2)
         self.layer4 = self._make_layer(block, 64, layers[3])
         self.conv1 = nn.Conv2d(
             64 * block.expansion, 3, kernel_size=3, stride=1, padding=1, bias=False
