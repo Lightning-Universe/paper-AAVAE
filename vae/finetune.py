@@ -16,7 +16,7 @@ from vae import VAE
 
 
 class FineTuner(pl.LightningModule):
-    def __init__(self, backbone, in_features=512, lr=1e-3, num_classes=10, p=0.1):
+    def __init__(self, backbone, in_features=512, lr=1e-3, num_classes=10, p=0.0):
         super().__init__()
         self.save_hyperparameters()
         self.backbone = backbone
@@ -56,8 +56,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("pretrained")
     parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
-    parser.add_argument("--max_epochs", type=int, default=200)
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--max_epochs", type=int, default=300)
     parser.add_argument("--gpus", default="1")
     args = parser.parse_args()
 

@@ -22,7 +22,7 @@ distributions = {
 
 class VAE(pl.LightningModule):
     def __init__(
-        self, kl_coeff=0.03, latent_dim=256, lr=1e-4, prior="normal", posterior="normal"
+        self, kl_coeff=0.1, latent_dim=256, lr=1e-4, prior="normal", posterior="normal"
     ):
         super(VAE, self).__init__()
         self.save_hyperparameters()
@@ -89,7 +89,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--kl_coeff", type=float, default=0.03)
+    parser.add_argument("--kl_coeff", type=float, default=0.1)
     parser.add_argument("--learning_rate", type=float, default=1e-4)
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
