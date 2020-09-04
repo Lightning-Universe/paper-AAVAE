@@ -15,6 +15,7 @@ from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 from resnet import resnet18_encoder, resnet18_decoder
 from online_eval import SSLOnlineEvaluator
 from gini import gini_score
+from transforms import TrainTransforms, EvalTransforms
 
 distributions = {
     "laplace": torch.distributions.Laplace,
@@ -52,16 +53,16 @@ class VAE(pl.LightningModule):
         return p, q, z
 
     def step(self, batch, batch_idx):
-        x, y = batch
+        (x1, x2), y = batch
 
-        z, x_hat, p, q = self.forward(x)
+        z, x1_hat, p, q = self.forward(x1)
 
         # reconstruction
-        recon = F.mse_loss(x_hat, x)
+        recon = F.mse_loss(x1_hat, x2)
 
         # KL divergence
         kl = torch.sum(q.log_prob(z) - p.log_prob(z))
-        kl /= torch.numel(x)  # normalize kl by number of elements in reconstruction
+        kl /= torch.numel(x1)  # normalize kl by number of elements in reconstruction
 
         loss = recon + self.kl_coeff * kl
 
@@ -106,16 +107,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dm = CIFAR10DataModule(data_dir="data", batch_size=args.batch_size, num_workers=6)
-    dm.train_transforms = T.Compose(
-        [
-            T.RandomCrop(32, padding=4, padding_mode="reflect"),
-            T.RandomHorizontalFlip(),
-            T.ToTensor(),
-            cifar10_normalization(),
-        ]
-    )
-    dm.test_transforms = T.Compose([T.ToTensor(), cifar10_normalization()])
-    dm.val_transforms = T.Compose([T.ToTensor(), cifar10_normalization()])
+    dm.train_transforms = TrainTransforms(cifar10_normalization())
+    dm.test_transforms = EvalTransforms(cifar10_normalization())
+    dm.val_transforms = EvalTransforms(cifar10_normalization())
 
     model = VAE(
         latent_dim=args.latent_dim,
