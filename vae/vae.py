@@ -13,6 +13,8 @@ from pl_bolts.datamodules import CIFAR10DataModule
 from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 
 from resnet import resnet18_encoder, resnet18_decoder
+from online_eval import SSLOnlineEvaluator
+from gini import gini_score
 
 distributions = {
     "laplace": torch.distributions.Laplace,
@@ -63,7 +65,9 @@ class VAE(pl.LightningModule):
 
         loss = recon + self.kl_coeff * kl
 
-        logs = {"kl": kl, "recon": recon, "loss": loss}
+        gini = gini_score(z).mean()
+
+        logs = {"kl": kl, "recon": recon, "loss": loss, "gini": gini}
         return loss, logs
 
     def training_step(self, batch, batch_idx):
@@ -121,5 +125,9 @@ if __name__ == "__main__":
         posterior=args.posterior,
     )
 
-    trainer = pl.Trainer(gpus=args.gpus, max_epochs=args.max_epochs)
+    online_eval = SSLOnlineEvaluator(z_dim=512, num_classes=dm.num_classes, drop_p=0.0)
+
+    trainer = pl.Trainer(
+        gpus=args.gpus, max_epochs=args.max_epochs, callbacks=[online_eval]
+    )
     trainer.fit(model, dm)
