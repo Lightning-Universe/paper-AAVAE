@@ -14,7 +14,7 @@ from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 
 from resnet import resnet18_encoder, resnet18_decoder
 from online_eval import SSLOnlineEvaluator
-from gini import gini_score
+from metrics import gini_score
 from transforms import TrainTransforms, EvalTransforms
 
 distributions = {
