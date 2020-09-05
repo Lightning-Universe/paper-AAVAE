@@ -25,11 +25,16 @@ def marginal_logpx(z, x_hat, p, q, N):
 
         logpx = marginal_logpx(z, x_hat, p, q, N=1000)
     """
+    N = torch.tensor(N).type_as(x_hat)
+
     log_pz = p.log_prob(z).sum(dim=1)
     log_qz = q.log_prob(z).sum(dim=1)
+
+    # TODO: I think this needs to be different
+    # Maybe assume each subpixel is a logistic?
     log_pxz = torch.log(x_hat).sum(dim=(1, 2, 3))
 
-    return torch.logsumexp(log_pxz + log_pz - log_qz) - torch.log(N)
+    return torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - torch.log(N)
 
 
 def gini_score(x):

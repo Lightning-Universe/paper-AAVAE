@@ -14,7 +14,7 @@ from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 
 from resnet import resnet18_encoder, resnet18_decoder
 from online_eval import SSLOnlineEvaluator
-from metrics import gini_score
+from metrics import gini_score, marginal_logpx
 from transforms import TrainTransforms, EvalTransforms
 
 distributions = {
@@ -67,6 +67,9 @@ class VAE(pl.LightningModule):
         loss = recon + self.kl_coeff * kl
 
         gini = gini_score(z).mean()
+
+        # TODO: use real N
+        logpx = marginal_logpx(z, x1_hat, p, q, N=10000)
 
         logs = {"kl": kl, "recon": recon, "loss": loss, "gini": gini}
         return loss, logs
