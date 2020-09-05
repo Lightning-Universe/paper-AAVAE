@@ -313,7 +313,6 @@ class ResNetDecoder(nn.Module):
         x = self.layer4(x)
 
         x = self.conv1(x)
-        x = torch.sigmoid(x)
         x = x.view(x.size(0), 3, 32, 32)
         return x
 
