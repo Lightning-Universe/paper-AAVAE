@@ -15,7 +15,7 @@ from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 from resnet import resnet18_encoder, resnet18_decoder
 from online_eval import SSLOnlineEvaluator
 from metrics import gini_score, marginal_logpx
-from transforms import TrainTransforms, EvalTransforms
+from transforms import SimCLRTransform, EvalTransform
 
 distributions = {
     "laplace": torch.distributions.Laplace,
@@ -53,12 +53,12 @@ class VAE(pl.LightningModule):
         return p, q, z
 
     def step(self, batch, batch_idx):
-        (x1, x2), y = batch
+        (x1, _, x), y = batch
 
         z, x1_hat, p, q = self.forward(x1)
 
         # reconstruction
-        recon = F.mse_loss(x1_hat, x2)
+        recon = F.mse_loss(x1_hat, x)
 
         # KL divergence
         kl = torch.sum(q.log_prob(z) - p.log_prob(z))
@@ -68,10 +68,16 @@ class VAE(pl.LightningModule):
 
         gini = gini_score(z).mean()
 
-        # TODO: use real N
-        logpx = marginal_logpx(z, x1_hat, p, q, N=10000)
+        # TODO: implement this properly, add to logs
+        # logpx = marginal_logpx(z, x1_hat, p, q, N=10000)
 
-        logs = {"kl": kl, "recon": recon, "loss": loss, "gini": gini}
+        logs = {
+            "kl": kl,
+            "recon": recon,
+            "loss": loss,
+            "gini": gini,
+            # "marginal_logp": logpx,
+        }
         return loss, logs
 
     def training_step(self, batch, batch_idx):
@@ -102,6 +108,7 @@ if __name__ == "__main__":
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
 
+    parser.add_argument("--simclr", type=bool, default=False)
     parser.add_argument("--batch_size", type=int, default=256)
 
     parser.add_argument("--max_epochs", type=int, default=300)
@@ -110,9 +117,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dm = CIFAR10DataModule(data_dir="data", batch_size=args.batch_size, num_workers=6)
-    dm.train_transforms = TrainTransforms(cifar10_normalization())
-    dm.test_transforms = EvalTransforms(cifar10_normalization())
-    dm.val_transforms = EvalTransforms(cifar10_normalization())
+    if args.simclr:
+        dm.train_transforms = SimCLRTransform(
+            input_height=32, normalize=cifar10_normalization()
+        )
+    else:
+        dm.train_transforms = EvalTransform(cifar10_normalization())
+    dm.test_transforms = EvalTransform(cifar10_normalization())
+    dm.val_transforms = EvalTransform(cifar10_normalization())
 
     model = VAE(
         latent_dim=args.latent_dim,
