@@ -30,7 +30,9 @@ def marginal_logpx(z, x_hat, p, q, N):
     log_pz = p.log_prob(z).sum(dim=1)
     log_qz = q.log_prob(z).sum(dim=1)
 
-    # TODO: I think this needs to be different
+    # TODO: This needs to be different as x_hat
+    # should have mean ~ 0 , std ~ 1.
+    # Negative values will obviously return nan
     # Maybe assume each subpixel is a logistic?
     log_pxz = torch.log(x_hat).sum(dim=(1, 2, 3))
 
