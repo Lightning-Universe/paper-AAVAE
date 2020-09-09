@@ -49,13 +49,20 @@ class Transforms:
     ):
         input_transform = [self.transform_map[input_transform](), T.ToTensor()]
         recon_transform = [self.transform_map[recon_transform](), T.ToTensor()]
+        original_transform = [Identity(), T.ToTensor()]
 
         if normalize_fn is not None:
             input_transform.append(normalize_fn)
             recon_transform.append(normalize_fn)
+            original_transform.append(normalize_fn)
 
         self.input_transform = T.Compose(input_transform)
         self.recon_transform = T.Compose(recon_transform)
+        self.original_transform = T.Compose(original_transform)
 
     def __call__(self, x):
-        return self.input_transform(x), self.recon_transform(x), x
+        return (
+            self.input_transform(x),
+            self.recon_transform(x),
+            self.original_transform(x),
+        )
