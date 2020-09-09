@@ -1,45 +1,6 @@
 import torch
 
 
-# def marginal_logpx(z, x_hat, p, q, N):
-#     """
-#     Evaluate marginal log p(x) using importance sampling
-#
-#     \begin{align}
-#     \log p(x) &= E_p[p(x|z)]\\
-#     &=\log(\int p(x|z) p(z) dz) \\
-#     &= \log(\int p(x|z) p(z) / q(z|x) q(z|x) dz) \\
-#     &= E_q[p(x|z) p(z) / q(z|x)] \\
-#     &\approx \log(1/n * \sum_i p(x|z_i) p(z_i)/q(z_i)) \\
-#     &\approx \log(1/N * \sum_i \exp({\log p(x|z_i) + \log p(z_i) - \log q(z_i)}) \\
-#     &\approx \text{logsumexp}(\log p(x|z_i) + \log p(z_i) - \log q(z_i)) - \log N
-#     \end{align}
-#
-#     Example:
-#
-#         mu, log_var = encoder(x)
-#         p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
-#         q = torch.distributions.Normal(mu, std)
-#         z = q.rsample()
-#         x_hat = decoder(z)
-#
-#         logpx = marginal_logpx(z, x_hat, p, q, N=1000)
-#     """
-#     N = torch.tensor(N).type_as(x_hat)
-#
-#     log_pz = p.log_prob(z).sum(dim=1)
-#     log_qz = q.log_prob(z).sum(dim=1)
-#
-#     # TODO: This needs to be different as x_hat
-#     # should have mean ~ 0 , std ~ 1.
-#     # Negative values will obviously return nan
-#     # Maybe assume each subpixel is a logistic?
-#     log_pxz = torch.log(x_hat).sum(dim=(1, 2, 3))
-#
-#     return torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - torch.log(N)
-#
-
-
 def gini_score(x):
     """
     Measures the sparsity of a tensor

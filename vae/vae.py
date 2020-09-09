@@ -83,10 +83,15 @@ class VAE(pl.LightningModule):
         kl = log_qz - log_pz
         kl = kl.sum(dim=(1))  # sum all dims except batch
 
-        elbo = (kl - log_pxz).mean()  # elbo
+        elbo = (kl - log_pxz).mean()
         bpd = elbo / (32 * 32 * 3 * np.log(2.0))
 
         gini = gini_score(z)
+
+        # marginal log p(x) using importance sampling
+        # TODO: is this N batch size or number of elements (e.g. 3 * 32 * 32 for CIFAR)
+        n = torch.tensor(x1.size(0)).type_as(x1)
+        marg_log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - torch.log(n)
 
         logs = {
             "kl": kl.mean(),
@@ -94,6 +99,7 @@ class VAE(pl.LightningModule):
             "gini": gini.mean(),
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
+            "marginal_log_px": marg_log_px.mean(),
         }
         return elbo, logs
 
