@@ -125,7 +125,7 @@ if __name__ == "__main__":
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
 
-    parser.add_argument("--simclr", type=bool, default=False)
+    parser.add_argument("--simclr", type=bool, action="store_true", default=False)
     parser.add_argument("--batch_size", type=int, default=256)
 
     parser.add_argument("--max_epochs", type=int, default=300)
