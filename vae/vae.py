@@ -85,6 +85,7 @@ class VAE(pl.LightningModule):
             "kl": kl.mean(),
             "elbo": elbo,
             "gini": gini.mean(),
+            "bpd": bpd,
             "log_pxz": log_pxz.mean(),
         }
         return elbo, logs
