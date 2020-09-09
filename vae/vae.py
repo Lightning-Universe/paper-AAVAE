@@ -34,6 +34,13 @@ def discretized_logistic(mean, logscale, sample, binsize=1 / 256):
     return log_pxz.sum(dim=(1, 2, 3))
 
 
+def gaussian_likelihood(mean, logscale, sample):
+    scale = torch.exp(logscale)
+    dist = torch.distributions.Normal(mean, scale)
+    log_pxz = dist.log_prob(sample)
+    return log_pxz.sum(dim=(1, 2, 3))
+
+
 class VAE(pl.LightningModule):
     def __init__(
         self, kl_coeff=0.1, latent_dim=256, lr=1e-4, prior="normal", posterior="normal"
