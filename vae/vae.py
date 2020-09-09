@@ -48,7 +48,6 @@ class VAE(pl.LightningModule):
         super(VAE, self).__init__()
         self.save_hyperparameters()
         self.lr = lr
-        self.kl_coeff = kl_coeff
         self.encoder = resnet18_encoder()
         self.decoder = resnet18_decoder(latent_dim=latent_dim)
         self.log_scale = nn.Parameter(torch.Tensor([0.0]))
@@ -126,7 +125,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--kl_coeff", type=float, default=0.1)
     parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
@@ -154,7 +152,6 @@ if __name__ == "__main__":
     model = VAE(
         latent_dim=args.latent_dim,
         lr=args.learning_rate,
-        kl_coeff=args.kl_coeff,
         prior=args.prior,
         posterior=args.posterior,
     )
