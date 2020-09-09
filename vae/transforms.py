@@ -58,4 +58,4 @@ class Transforms:
         self.recon_transform = T.Compose(recon_transform)
 
     def __call__(self, x):
-        return self.input_transform(x), self.recon_transform(x)
+        return self.input_transform(x), self.recon_transform(x), x
