@@ -9,9 +9,9 @@
 
 ```
 # needs to be run from root 
-grid train --gpus 1 --instance_type p3.2xlarge vae/vae.py --recon_transform "['original','global','local']" --input_transform "['original','global','local']"
-grid train --gpus 1 --instance_type p3.2xlarge vae/vae.py --posterior laplace --recon_transform "['original','global','local']" --input_transform "['original','global','local']"
-grid train --gpus 1 --instance_type p3.2xlarge vae/vae.py --prior laplace --recon_transform "['original','global','local']" --input_transform "['original','global','local']"
+grid train --name baseline --gpus 1 --instance_type p3.2xlarge vae/vae.py --recon_transform "['original','global','local']" --input_transform "['original','global','local']"
+grid train --name laplace_post --gpus 1 --instance_type p3.2xlarge vae/vae.py --posterior laplace --recon_transform "['original','global','local']" --input_transform "['original','global','local']"
+grid train --name laplace_prior --gpus 1 --instance_type p3.2xlarge vae/vae.py --prior laplace --recon_transform "['original','global','local']" --input_transform "['original','global','local']"
 ```
 
 ## Usage
