@@ -23,6 +23,9 @@ class SSLOnlineEvaluator(pl.Callback):
         self.z_dim = z_dim
         self.num_classes = num_classes
 
+        self.loss = []
+        self.acc = []
+
     def on_pretrain_routine_start(self, trainer, pl_module):
         from pl_bolts.models.self_supervised.evaluator import SSLEvaluator
 
@@ -49,7 +52,7 @@ class SSLOnlineEvaluator(pl.Callback):
         return representations
 
     def to_device(self, batch, device):
-        (_, x), y = batch
+        (_, _, x), y = batch
         x = x.to(device)
         y = y.to(device)
 
@@ -76,3 +79,32 @@ class SSLOnlineEvaluator(pl.Callback):
         acc = accuracy(mlp_preds, y)
         metrics = {"ft_callback_mlp_loss": mlp_loss, "ft_callback_mlp_acc": acc}
         pl_module.logger.log_metrics(metrics, step=trainer.global_step)
+
+    def on_validation_batch_end(self, trainer, pl_module, batch, batch_idx, dataloader_idx):
+        x, y = self.to_device(batch, pl_module.device)
+
+        with torch.no_grad():
+            representations = self.get_representations(pl_module.encoder, x)
+
+        representations = representations.detach()
+
+        # forward pass
+        mlp_preds = pl_module.non_linear_evaluator(representations)
+        mlp_loss = F.cross_entropy(mlp_preds, y)
+
+        # log metrics
+        acc = accuracy(mlp_preds, y)
+
+        self.loss.append(mlp_loss.item())
+        self.acc.append(acc.item())
+
+        metrics = {"ft_callback_mlp_loss": mlp_loss, "ft_callback_mlp_acc": acc}
+        pl_module.logger.log_metrics(metrics, step=trainer.global_step)
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        metrics = {"val_mlp_loss": sum(self.loss) / len(self.loss), "val_mlp_acc": sum(self.acc) / len(self.acc)}
+        pl_module.logger.log_metrics(metrics, step=trainer.current_epoch)
+
+        # reset
+        self.loss = []
+        self.acc = []
