@@ -131,7 +131,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_size", type=int, default=256)
 
-    tf_choices = ["orginal", "global", "local"]
+    tf_choices = ["original", "global", "local"]
     parser.add_argument("--input_transform", default="original", choices=tf_choices)
     parser.add_argument("--recon_transform", default="original", choices=tf_choices)
 
