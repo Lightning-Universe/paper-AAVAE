@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 import torchvision.transforms as T
+import numpy as np
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
@@ -14,13 +15,23 @@ from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 
 from resnet import resnet18_encoder, resnet18_decoder
 from online_eval import SSLOnlineEvaluator
-from metrics import gini_score, marginal_logpx
+from metrics import gini_score
 from transforms import SimCLRTransform, EvalTransform
 
 distributions = {
     "laplace": torch.distributions.Laplace,
     "normal": torch.distributions.Normal,
 }
+
+
+def discretized_logistic(mean, logscale, sample, binsize=1 / 256):
+    mean = mean.clamp(min=-0.5 + 1 / 512, max=0.5 - 1 / 512)
+    scale = torch.exp(logscale)
+    sample = (torch.floor(sample / binsize) * binsize - mean) / scale
+    log_pxz = torch.log(
+        torch.sigmoid(sample + binsize / scale) - torch.sigmoid(sample) + 1e-7
+    )
+    return log_pxz.sum(dim=(1, 2, 3))
 
 
 class VAE(pl.LightningModule):
@@ -33,6 +44,7 @@ class VAE(pl.LightningModule):
         self.kl_coeff = kl_coeff
         self.encoder = resnet18_encoder()
         self.decoder = resnet18_decoder(latent_dim=latent_dim)
+        self.log_scale = nn.Parameter(torch.Tensor([0.0]))
         self.fc_mu = nn.Linear(512, latent_dim)
         self.fc_var = nn.Linear(512, latent_dim)
         self.prior = prior
@@ -57,28 +69,25 @@ class VAE(pl.LightningModule):
 
         z, x1_hat, p, q = self.forward(x1)
 
-        # reconstruction
-        recon = F.mse_loss(x1_hat, x)
+        log_pxz = discretized_logistic(x1_hat, self.log_scale, x)
+        log_qz = q.log_prob(z)
+        log_pz = p.log_prob(z)
 
-        # KL divergence
-        kl = torch.sum(q.log_prob(z) - p.log_prob(z))
-        kl /= torch.numel(x1)  # normalize kl by number of elements in reconstruction
+        kl = log_qz - log_pz
+        kl = kl.sum(dim=(1))  # sum all dims except batch
 
-        loss = recon + self.kl_coeff * kl
+        elbo = (kl - log_pxz).mean()  # elbo
+        bpd = elbo / (32 * 32 * 3 * np.log(2.0))
 
-        gini = gini_score(z).mean()
-
-        # TODO: implement this properly, add to logs
-        # logpx = marginal_logpx(z, x1_hat, p, q, N=10000)
+        gini = gini_score(z)
 
         logs = {
-            "kl": kl,
-            "recon": recon,
-            "loss": loss,
-            "gini": gini,
-            # "marginal_logp": logpx,
+            "kl": kl.mean(),
+            "elbo": elbo,
+            "gini": gini.mean(),
+            "log_pxz": log_pxz.mean(),
         }
-        return loss, logs
+        return elbo, logs
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
@@ -104,7 +113,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--kl_coeff", type=float, default=0.1)
-    parser.add_argument("--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
 
@@ -119,12 +128,12 @@ if __name__ == "__main__":
     dm = CIFAR10DataModule(data_dir="data", batch_size=args.batch_size, num_workers=6)
     if args.simclr:
         dm.train_transforms = SimCLRTransform(
-            input_height=32, normalize=cifar10_normalization()
+            input_height=32, normalize=lambda x: x - 0.5
         )
     else:
-        dm.train_transforms = EvalTransform(cifar10_normalization())
-    dm.test_transforms = EvalTransform(cifar10_normalization())
-    dm.val_transforms = EvalTransform(cifar10_normalization())
+        dm.train_transforms = EvalTransform(lambda x: x - 0.5)
+    dm.test_transforms = EvalTransform(lambda x: x - 0.5)
+    dm.val_transforms = EvalTransform(lambda x: x - 0.5)
 
     model = VAE(
         latent_dim=args.latent_dim,
