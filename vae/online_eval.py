@@ -49,7 +49,7 @@ class SSLOnlineEvaluator(pl.Callback):
         return representations
 
     def to_device(self, batch, device):
-        (_, _, x), y = batch
+        (_, x), y = batch
         x = x.to(device)
         y = y.to(device)
 

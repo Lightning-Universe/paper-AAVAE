@@ -16,7 +16,7 @@ from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 from resnet import resnet18_encoder, resnet18_decoder
 from online_eval import SSLOnlineEvaluator
 from metrics import gini_score
-from transforms import SimCLRTransform, EvalTransform
+from transforms import Transforms
 
 distributions = {
     "laplace": torch.distributions.Laplace,
@@ -72,11 +72,11 @@ class VAE(pl.LightningModule):
         return p, q, z
 
     def step(self, batch, batch_idx):
-        (x1, _, x), y = batch
+        (x1, x2), y = batch
 
         z, x1_hat, p, q = self.forward(x1)
 
-        log_pxz = discretized_logistic(x1_hat, self.log_scale, x)
+        log_pxz = discretized_logistic(x1_hat, self.log_scale, x2)
         log_qz = q.log_prob(z)
         log_pz = p.log_prob(z)
 
@@ -125,8 +125,11 @@ if __name__ == "__main__":
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
 
-    parser.add_argument("--simclr", type=bool, action="store_true", default=False)
     parser.add_argument("--batch_size", type=int, default=256)
+
+    tf_choices = ["orginal", "global", "local"]
+    parser.add_argument("--input_transform", default="original", choices=tf_choices)
+    parser.add_argument("--recon_transform", default="original", choices=tf_choices)
 
     parser.add_argument("--max_epochs", type=int, default=300)
     parser.add_argument("--gpus", default="1")
@@ -134,14 +137,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dm = CIFAR10DataModule(data_dir="data", batch_size=args.batch_size, num_workers=6)
-    if args.simclr:
-        dm.train_transforms = SimCLRTransform(
-            input_height=32, normalize=lambda x: x - 0.5
-        )
-    else:
-        dm.train_transforms = EvalTransform(lambda x: x - 0.5)
-    dm.test_transforms = EvalTransform(lambda x: x - 0.5)
-    dm.val_transforms = EvalTransform(lambda x: x - 0.5)
+    dm.train_transforms = Transforms(
+        input_transform=args.input_transform,
+        recon_transform=args.recon_transform,
+        normalize_fn=lambda x: x - 0.5,
+    )
+    dm.test_transforms = Transforms(normalize_fn=lambda x: x - 0.5)
+    dm.val_transforms = Transforms(normalize_fn=lambda x: x - 0.5)
 
     model = VAE(
         latent_dim=args.latent_dim,
