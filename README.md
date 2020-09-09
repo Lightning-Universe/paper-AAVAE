@@ -9,7 +9,9 @@
 
 ```
 # needs to be run from root 
-grid train --gpus 1 --instance_type p3.2xlarge vae/vae.py
+grid train --gpus 1 --instance_type p3.2xlarge vae/vae.py --recon_transform "['original','global','local']" --input_transform "['original','global','local']"
+grid train --gpus 1 --instance_type p3.2xlarge vae/vae.py --posterior laplace --recon_transform "['original','global','local']" --input_transform "['original','global','local']"
+grid train --gpus 1 --instance_type p3.2xlarge vae/vae.py --prior laplace --recon_transform "['original','global','local']" --input_transform "['original','global','local']"
 ```
 
 ## Usage
@@ -18,8 +20,8 @@ grid train --gpus 1 --instance_type p3.2xlarge vae/vae.py
 # train vae
 python vae/vae.py --prior normal --posterior laplace
 
-# train vae, construct original from SimCLR view
-python vae/vae.py --simclr True
+# train vae, construct original from local transform
+python vae/vae.py --recon_transform original --input_transform local
 
 ```
 
