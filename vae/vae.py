@@ -106,33 +106,22 @@ class VAE(pl.LightningModule):
             "log_pxz": log_pxz.mean(),
             "marginal_log_px": marg_log_px.mean(),
         }
-        return elbo, logs, z
+
+        return elbo, logs
 
     def training_step(self, batch, batch_idx):
-        loss, logs, z = self.step(batch, batch_idx)
+        loss, logs = self.step(batch, batch_idx)
         result = pl.TrainResult(minimize=loss)
         result.log_dict(
             {f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False
         )
-        # result.z = z
         return result
 
     def validation_step(self, batch, batch_idx):
-        loss, logs, z = self.step(batch, batch_idx)
+        loss, logs = self.step(batch, batch_idx)
         result = pl.EvalResult(checkpoint_on=loss)
         result.log_dict({f"val_{k}": v for k, v in logs.items()})
-        # result.z = z
         return result
-
-    # def training_epoch_end(self, result):
-    #     kurt = kurtosis_score(result.z)
-    #     result.log("train_kurtosis", kurt)
-    #     return result
-
-    # def validation_epoch_end(self, result):
-    #     kurt = kurtosis_score(result.z)
-    #     result.log("val_kurtosis", kurt)
-    #     return result
 
     def configure_optimizers(self):
         return torch.optim.Adamax(self.parameters(), lr=self.lr)
@@ -178,9 +167,6 @@ if __name__ == "__main__":
     online_eval = SSLOnlineEvaluator(z_dim=512, num_classes=dm.num_classes, drop_p=0.0)
 
     trainer = pl.Trainer(
-        gpus=args.gpus,
-        max_epochs=args.max_epochs,
-        callbacks=[online_eval],
-        overfit_pct=0.1,
+        gpus=args.gpus, max_epochs=args.max_epochs, callbacks=[online_eval]
     )
     trainer.fit(model, dm)
