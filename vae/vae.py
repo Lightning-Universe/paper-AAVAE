@@ -117,11 +117,12 @@ class VAE(pl.LightningModule):
         return result
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.lr)
+        return torch.optim.Adamax(self.parameters(), lr=self.lr)
 
 
 if __name__ == "__main__":
     # TODO: model specific args and stuff
+    pl.seed_everything(0)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--latent_dim", type=int, default=256)
