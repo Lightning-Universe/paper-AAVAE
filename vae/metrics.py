@@ -1,4 +1,5 @@
 import torch
+from scipy.stats import kurtosis
 
 
 def gini_score(x):
@@ -30,3 +31,13 @@ def gini_score(x):
     scores = scores.view(b, 1)
 
     return scores
+
+
+def kurtosis_score(x):
+    """
+    Measures kurtosis of batch
+    """
+    k = []
+    x = x.t().detach().cpu().numpy()  # [n, z_dim] => [z_dim, n]
+    scores = torch.tensor([kurtosis(dim) for dim in x])
+    return scores.mean()

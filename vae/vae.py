@@ -15,7 +15,7 @@ from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 
 from resnet import resnet18_encoder, resnet18_decoder
 from online_eval import SSLOnlineEvaluator
-from metrics import gini_score
+from metrics import gini_score, kurtosis_score
 from transforms import Transforms
 
 distributions = {
@@ -55,6 +55,8 @@ class VAE(pl.LightningModule):
         self.fc_var = nn.Linear(512, latent_dim)
         self.prior = prior
         self.posterior = posterior
+
+        self.zs = []
 
     def forward(self, x):
         x = self.encoder(x)
@@ -100,20 +102,34 @@ class VAE(pl.LightningModule):
             "log_pxz": log_pxz.mean(),
             "marginal_log_px": marg_log_px.mean(),
         }
-        return elbo, logs
+        return elbo, logs, z
 
     def training_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, batch_idx)
+        loss, logs, z = self.step(batch, batch_idx)
         result = pl.TrainResult(minimize=loss)
         result.log_dict(
             {f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False
         )
+        result.z = z
         return result
 
     def validation_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, batch_idx)
+        loss, logs, z = self.step(batch, batch_idx)
         result = pl.EvalResult(checkpoint_on=loss)
         result.log_dict({f"val_{k}": v for k, v in logs.items()})
+        result.z = z
+        return result
+
+    def training_epoch_end(self, result):
+        kurt = kurtosis_score(result.z)
+        result = pl.TrainResult()
+        result.log("train_kurtosis", kurt)
+        return result
+
+    def validation_epoch_end(self, result):
+        kurt = kurtosis_score(result.z)
+        result = pl.EvalResult()
+        result.log("val_kurtosis", kurt)
         return result
 
     def configure_optimizers(self):
