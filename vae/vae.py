@@ -89,6 +89,9 @@ class VAE(pl.LightningModule):
 
         gini = gini_score(z)
 
+        # TODO: this should be epoch metric
+        kurt = kurtosis_score(z)
+
         # marginal log p(x) using importance sampling
         # TODO: is this N batch size or number of elements (e.g. 3 * 32 * 32 for CIFAR)
         n = torch.tensor(x1.size(0)).type_as(x1)
@@ -98,6 +101,7 @@ class VAE(pl.LightningModule):
             "kl": kl.mean(),
             "elbo": elbo,
             "gini": gini.mean(),
+            "kurtosis": kurt,
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
             "marginal_log_px": marg_log_px.mean(),
@@ -110,27 +114,25 @@ class VAE(pl.LightningModule):
         result.log_dict(
             {f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False
         )
-        result.z = z
+        # result.z = z
         return result
 
     def validation_step(self, batch, batch_idx):
         loss, logs, z = self.step(batch, batch_idx)
         result = pl.EvalResult(checkpoint_on=loss)
         result.log_dict({f"val_{k}": v for k, v in logs.items()})
-        result.z = z
+        # result.z = z
         return result
 
-    def training_epoch_end(self, result):
-        kurt = kurtosis_score(result.z)
-        result = pl.TrainResult()
-        result.log("train_kurtosis", kurt)
-        return result
+    # def training_epoch_end(self, result):
+    #     kurt = kurtosis_score(result.z)
+    #     result.log("train_kurtosis", kurt)
+    #     return result
 
-    def validation_epoch_end(self, result):
-        kurt = kurtosis_score(result.z)
-        result = pl.EvalResult()
-        result.log("val_kurtosis", kurt)
-        return result
+    # def validation_epoch_end(self, result):
+    #     kurt = kurtosis_score(result.z)
+    #     result.log("val_kurtosis", kurt)
+    #     return result
 
     def configure_optimizers(self):
         return torch.optim.Adamax(self.parameters(), lr=self.lr)
@@ -176,6 +178,9 @@ if __name__ == "__main__":
     online_eval = SSLOnlineEvaluator(z_dim=512, num_classes=dm.num_classes, drop_p=0.0)
 
     trainer = pl.Trainer(
-        gpus=args.gpus, max_epochs=args.max_epochs, callbacks=[online_eval]
+        gpus=args.gpus,
+        max_epochs=args.max_epochs,
+        callbacks=[online_eval],
+        overfit_pct=0.1,
     )
     trainer.fit(model, dm)
