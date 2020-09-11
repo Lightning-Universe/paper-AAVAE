@@ -94,8 +94,9 @@ class VAE(pl.LightningModule):
 
         # marginal log p(x) using importance sampling
         # TODO: is this N batch size or number of elements (e.g. 3 * 32 * 32 for CIFAR)
-        n = torch.tensor(x1.size(0)).type_as(x1)
-        marg_log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - torch.log(n)
+        # n = torch.tensor(x1.size(0)).type_as(x1)
+        # TODO: log_pz, log_qz need to be reduced over last dim, sum or mean?
+        # marg_log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - torch.log(n)
 
         logs = {
             "kl": kl.mean(),
@@ -104,7 +105,7 @@ class VAE(pl.LightningModule):
             "kurtosis": kurt,
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
-            "marginal_log_px": marg_log_px.mean(),
+            # "marginal_log_px": marg_log_px.mean(),
         }
 
         return elbo, logs
