@@ -10,8 +10,8 @@ import numpy as np
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
 
-from pl_bolts.datamodules import CIFAR10DataModule
-from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
+from pl_bolts.datamodules import CIFAR10DataModule, STL10DataModule
+from pl_bolts.transforms.dataset_normalizations import cifar10_normalization, stl10_normalization
 
 from resnet import resnet18_encoder, resnet18_decoder
 from online_eval import SSLOnlineEvaluator
@@ -52,6 +52,7 @@ class VAE(pl.LightningModule):
         self.save_hyperparameters()
         self.lr = lr
         self.input_height = input_height
+        self.in_channels = 3
         self.enc_out_dim = enc_out_dim
         self.latent_dim = latent_dim
 
@@ -59,8 +60,8 @@ class VAE(pl.LightningModule):
         self.decoder = resnet18_decoder(self.latent_dim, self.input_height, first_conv, maxpool1)
 
         self.log_scale = nn.Parameter(torch.Tensor([0.0]))
-        self.fc_mu = nn.Linear(512, latent_dim)
-        self.fc_var = nn.Linear(512, latent_dim)
+        self.fc_mu = nn.Linear(self.enc_out_dim, self.latent_dim)
+        self.fc_var = nn.Linear(self.enc_out_dim, self.latent_dim)
         self.prior = prior
         self.posterior = posterior
 
@@ -82,6 +83,9 @@ class VAE(pl.LightningModule):
 
     def step(self, batch, batch_idx):
         (x1, x2, _), y = batch
+        
+        print(y)
+        exit(-1)
 
         z, x1_hat, p, q = self.forward(x1)
 
@@ -93,7 +97,7 @@ class VAE(pl.LightningModule):
         kl = kl.sum(dim=(1))  # sum all dims except batch
 
         elbo = (kl - log_pxz).mean()
-        bpd = elbo / (32 * 32 * 3 * np.log(2.0))
+        bpd = elbo / (self.input_height * self.input_height * self.in_channels * np.log(2.0))
 
         gini = gini_score(z)
 
@@ -102,8 +106,9 @@ class VAE(pl.LightningModule):
 
         # marginal log p(x) using importance sampling
         # TODO: is this N batch size or number of elements (e.g. 3 * 32 * 32 for CIFAR)
-        n = torch.tensor(x1.size(0)).type_as(x1)
-        marg_log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - torch.log(n)
+        # n = torch.tensor(x1.size(0)).type_as(x1)
+        # TODO: log_pz, log_qz need to be reduced over last dim, sum or mean?
+        # marg_log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - torch.log(n)
 
         logs = {
             "kl": kl.mean(),
@@ -112,7 +117,7 @@ class VAE(pl.LightningModule):
             "kurtosis": kurt,
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
-            "marginal_log_px": marg_log_px.mean(),
+            #"marginal_log_px": marg_log_px.mean(),
         }
 
         return elbo, logs
@@ -140,8 +145,12 @@ if __name__ == "__main__":
     pl.seed_everything(0)
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, default='cifar10', help="stl10/cifar10")
+    parser.add_argument("--num_workers", type=int, default=8)
+    
     parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--kl_coeff", type=float, default=0.1)
 
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
@@ -164,16 +173,24 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    dm = CIFAR10DataModule(data_dir="data", batch_size=args.batch_size, num_workers=6)
+    if args.dataset == "cifar10":
+        dm_cls = CIFAR10DataModule
+    elif args.dataset == "stl10":
+        dm_cls = STL10DataModule
+
+    dm = dm_cls(
+        data_dir="data", batch_size=args.batch_size, num_workers=args.num_workers
+    )
+    args.input_height = dm.size()[-1]
+
     dm.train_transforms = Transforms(
+        size=args.input_height,
         input_transform=args.input_transform,
         recon_transform=args.recon_transform,
         normalize_fn=lambda x: x - 0.5,
     )
-    dm.test_transforms = Transforms(normalize_fn=lambda x: x - 0.5)
-    dm.val_transforms = Transforms(normalize_fn=lambda x: x - 0.5)
-
-    args.input_height = dm.size()[-1]
+    dm.test_transforms = Transforms(size=args.input_height, normalize_fn=lambda x: x - 0.5)
+    dm.val_transforms = Transforms(size=args.input_height, normalize_fn=lambda x: x - 0.5)
 
     model = VAE(
         input_height=args.input_height,
@@ -186,7 +203,7 @@ if __name__ == "__main__":
         maxpool1=args.maxpool1,
     )
 
-    online_eval = SSLOnlineEvaluator(z_dim=512, num_classes=dm.num_classes, drop_p=0.0)
+    online_eval = SSLOnlineEvaluator(z_dim=args.enc_out_dim, num_classes=dm.num_classes, drop_p=0.0)
 
     trainer = pl.Trainer(
         gpus=args.gpus, max_epochs=args.max_epochs, callbacks=[online_eval]

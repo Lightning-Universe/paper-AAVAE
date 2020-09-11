@@ -4,12 +4,15 @@ import random
 
 
 class Identity:
+    def __init__(self, size=32):
+        self.size = size
+
     def __call__(self, x):
         return x
 
 
 class GlobalTransform:
-    def __init__(self, flip: bool = False, jitter_strength: float = 1.0):
+    def __init__(self, size=32, flip: bool = False, jitter_strength: float = 1.0):
         color_jitter = T.ColorJitter(
             0.8 * jitter_strength,
             0.8 * jitter_strength,
@@ -45,10 +48,10 @@ class Transforms:
     }
 
     def __init__(
-        self, input_transform="original", recon_transform="original", normalize_fn=None
+        self, size, input_transform="original", recon_transform="original", normalize_fn=None
     ):
-        input_transform = [self.transform_map[input_transform](), T.ToTensor()]
-        recon_transform = [self.transform_map[recon_transform](), T.ToTensor()]
+        input_transform = [self.transform_map[input_transform](size), T.ToTensor()]
+        recon_transform = [self.transform_map[recon_transform](size), T.ToTensor()]
         original_transform = [Identity(), T.ToTensor()]
 
         if normalize_fn is not None:
