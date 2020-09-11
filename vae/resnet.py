@@ -211,7 +211,6 @@ class DecoderBottleneck(nn.Module):
 
 
 class ResNetEncoder(nn.Module):
-
     def __init__(self, block, layers, first_conv=False, maxpool1=False):
         super().__init__()
 
@@ -279,7 +278,9 @@ class ResNetDecoder(nn.Module):
     Resnet in reverse order
     """
 
-    def __init__(self, block, layers, latent_dim, input_height, first_conv=False, maxpool1=False):
+    def __init__(
+        self, block, layers, latent_dim, input_height, first_conv=False, maxpool1=False
+    ):
         super().__init__()
 
         self.expansion = block.expansion
@@ -355,7 +356,9 @@ def resnet18_encoder(first_conv, maxpool1):
 
 
 def resnet18_decoder(latent_dim, input_height, first_conv, maxpool1):
-    return ResNetDecoder(DecoderBlock, [2, 2, 2, 2], latent_dim, input_height, first_conv, maxpool1)
+    return ResNetDecoder(
+        DecoderBlock, [2, 2, 2, 2], latent_dim, input_height, first_conv, maxpool1
+    )
 
 
 def resnet50_encoder(first_conv, maxpool1):
@@ -363,32 +366,38 @@ def resnet50_encoder(first_conv, maxpool1):
 
 
 def resnet50_decoder(latent_dim, input_height, first_conv, maxpool1):
-    return ResNetDecoder(DecoderBottleneck, [3, 4, 6, 3], latent_dim, input_height, first_conv, maxpool1)
+    return ResNetDecoder(
+        DecoderBottleneck, [3, 4, 6, 3], latent_dim, input_height, first_conv, maxpool1
+    )
 
 
 def test_resnet18_encoder():
-    model = resnet18_encoder()
+    model = resnet18_encoder(first_conv=False, maxpool1=False)
     img = torch.rand(64, 3, 32, 32)
     out = model(img)
     assert out.shape == (64, 512)
 
 
 def test_resnet18_decoder():
-    model = resnet18_decoder(latent_dim=256)
+    model = resnet18_decoder(
+        latent_dim=256, first_conv=False, maxpool1=False, input_height=32
+    )
     z = torch.rand(64, 256)
     out = model(z)
     assert out.shape == (64, 3, 32, 32)
 
 
 def test_resnet_50_encoder():
-    model = resnet50_encoder()
+    model = resnet50_encoder(first_conv=False, maxpool1=False)
     img = torch.rand(64, 3, 32, 32)
     out = model(img)
     assert out.shape == (64, 512 * 4)
 
 
 def test_resnet50_decoder():
-    model = resnet50_decoder(latent_dim=256)
+    model = resnet50_decoder(
+        latent_dim=256, input_height=32, first_conv=False, maxpool1=False
+    )
     z = torch.rand(64, 256)
     out = model(z)
     assert out.shape == (64, 3, 32, 32)
