@@ -43,13 +43,21 @@ def gaussian_likelihood(mean, logscale, sample):
 
 class VAE(pl.LightningModule):
     def __init__(
-        self, kl_coeff=0.1, latent_dim=256, lr=1e-4, prior="normal", posterior="normal"
+        self, input_height, kl_coeff=0.1, latent_dim=256, enc_out_dim=512,
+        lr=1e-4, prior="normal", posterior="normal",
+        first_conv=False, maxpool1=False
     ):
         super(VAE, self).__init__()
+
         self.save_hyperparameters()
         self.lr = lr
-        self.encoder = resnet18_encoder()
-        self.decoder = resnet18_decoder(latent_dim=latent_dim)
+        self.input_height = input_height
+        self.enc_out_dim = enc_out_dim
+        self.latent_dim = latent_dim
+
+        self.encoder = resnet18_encoder(first_conv, maxpool1)
+        self.decoder = resnet18_decoder(self.latent_dim, self.input_height, first_conv, maxpool1)
+
         self.log_scale = nn.Parameter(torch.Tensor([0.0]))
         self.fc_mu = nn.Linear(512, latent_dim)
         self.fc_var = nn.Linear(512, latent_dim)
@@ -134,9 +142,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--learning_rate", type=float, default=1e-3)
+
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
 
+    parser.add_argument("--first_conv", action='store_true')
+    parser.add_argument("--maxpool1", action='store_true')
+
+    parser.add_argument(
+        "--enc_out_dim", type=int, default=512,
+        help="512 for resnet18, 2048 for bigger resnets, adjust for wider resnets"
+    )
     parser.add_argument("--batch_size", type=int, default=256)
 
     tf_choices = ["original", "global", "local"]
@@ -157,11 +173,17 @@ if __name__ == "__main__":
     dm.test_transforms = Transforms(normalize_fn=lambda x: x - 0.5)
     dm.val_transforms = Transforms(normalize_fn=lambda x: x - 0.5)
 
+    args.input_height = dm.size()[-1]
+
     model = VAE(
+        input_height=args.input_height,
         latent_dim=args.latent_dim,
         lr=args.learning_rate,
+        kl_coeff=args.kl_coeff,
         prior=args.prior,
         posterior=args.posterior,
+        first_conv=args.first_conv,
+        maxpool1=args.maxpool1,
     )
 
     online_eval = SSLOnlineEvaluator(z_dim=512, num_classes=dm.num_classes, drop_p=0.0)
