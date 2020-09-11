@@ -83,9 +83,6 @@ class VAE(pl.LightningModule):
 
     def step(self, batch, batch_idx):
         (x1, x2, _), y = batch
-        
-        print(y)
-        exit(-1)
 
         z, x1_hat, p, q = self.forward(x1)
 
