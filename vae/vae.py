@@ -11,9 +11,17 @@ import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
 
 from pl_bolts.datamodules import CIFAR10DataModule, STL10DataModule
-from pl_bolts.transforms.dataset_normalizations import cifar10_normalization, stl10_normalization
+from pl_bolts.transforms.dataset_normalizations import (
+    cifar10_normalization,
+    stl10_normalization,
+)
 
-from resnet import resnet18_encoder, resnet18_decoder
+from resnet import (
+    resnet18_encoder,
+    resnet18_decoder,
+    resnet50_encoder,
+    resnet50_decoder,
+)
 from online_eval import SSLOnlineEvaluator
 from metrics import gini_score, kurtosis_score
 from transforms import Transforms
@@ -22,6 +30,9 @@ distributions = {
     "laplace": torch.distributions.Laplace,
     "normal": torch.distributions.Normal,
 }
+
+encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
+decoders = {"resnet18": resnet18_decoder, "resnet50": resnet50_decoder}
 
 
 def discretized_logistic(mean, logscale, sample, binsize=1 / 256):
@@ -43,9 +54,17 @@ def gaussian_likelihood(mean, logscale, sample):
 
 class VAE(pl.LightningModule):
     def __init__(
-        self, input_height, kl_coeff=0.1, latent_dim=256, enc_out_dim=512,
-        lr=1e-4, prior="normal", posterior="normal",
-        first_conv=False, maxpool1=False
+        self,
+        input_height,
+        kl_coeff=0.1,
+        latent_dim=256,
+        lr=1e-4,
+        encoder="resnet18",
+        decoder="resnet18",
+        prior="normal",
+        posterior="normal",
+        first_conv=False,
+        maxpool1=False,
     ):
         super(VAE, self).__init__()
 
@@ -53,15 +72,16 @@ class VAE(pl.LightningModule):
         self.lr = lr
         self.input_height = input_height
         self.in_channels = 3
-        self.enc_out_dim = enc_out_dim
         self.latent_dim = latent_dim
 
-        self.encoder = resnet18_encoder(first_conv, maxpool1)
-        self.decoder = resnet18_decoder(self.latent_dim, self.input_height, first_conv, maxpool1)
+        self.encoder = encoders[encoder](first_conv, maxpool1)
+        self.decoder = decoders[decoder](
+            self.latent_dim, self.input_height, first_conv, maxpool1
+        )
 
         self.log_scale = nn.Parameter(torch.Tensor([0.0]))
-        self.fc_mu = nn.Linear(self.enc_out_dim, self.latent_dim)
-        self.fc_var = nn.Linear(self.enc_out_dim, self.latent_dim)
+        self.fc_mu = nn.Linear(self.encoder.out_dim, self.latent_dim)
+        self.fc_var = nn.Linear(self.encoder.out_dim, self.latent_dim)
         self.prior = prior
         self.posterior = posterior
 
@@ -94,7 +114,9 @@ class VAE(pl.LightningModule):
         kl = kl.sum(dim=(1))  # sum all dims except batch
 
         elbo = (kl - log_pxz).mean()
-        bpd = elbo / (self.input_height * self.input_height * self.in_channels * np.log(2.0))
+        bpd = elbo / (
+            self.input_height * self.input_height * self.in_channels * np.log(2.0)
+        )
 
         gini = gini_score(z)
 
@@ -114,7 +136,7 @@ class VAE(pl.LightningModule):
             "kurtosis": kurt,
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
-            #"marginal_log_px": marg_log_px.mean(),
+            # "marginal_log_px": marg_log_px.mean(),
         }
 
         return elbo, logs
@@ -142,9 +164,9 @@ if __name__ == "__main__":
     pl.seed_everything(0)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default='cifar10', help="stl10/cifar10")
+    parser.add_argument("--dataset", type=str, default="cifar10", help="stl10/cifar10")
     parser.add_argument("--num_workers", type=int, default=8)
-    
+
     parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--kl_coeff", type=float, default=0.1)
@@ -152,13 +174,12 @@ if __name__ == "__main__":
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
 
-    parser.add_argument("--first_conv", action='store_true')
-    parser.add_argument("--maxpool1", action='store_true')
+    parser.add_argument("--first_conv", action="store_true")
+    parser.add_argument("--maxpool1", action="store_true")
 
-    parser.add_argument(
-        "--enc_out_dim", type=int, default=512,
-        help="512 for resnet18, 2048 for bigger resnets, adjust for wider resnets"
-    )
+    parser.add_argument("--encoder", default="resnet18", choices=encoders.keys())
+    parser.add_argument("--decoder", default="resnet18", choices=decoders.keys())
+
     parser.add_argument("--batch_size", type=int, default=256)
 
     tf_choices = ["original", "global", "local"]
@@ -186,8 +207,12 @@ if __name__ == "__main__":
         recon_transform=args.recon_transform,
         normalize_fn=lambda x: x - 0.5,
     )
-    dm.test_transforms = Transforms(size=args.input_height, normalize_fn=lambda x: x - 0.5)
-    dm.val_transforms = Transforms(size=args.input_height, normalize_fn=lambda x: x - 0.5)
+    dm.test_transforms = Transforms(
+        size=args.input_height, normalize_fn=lambda x: x - 0.5
+    )
+    dm.val_transforms = Transforms(
+        size=args.input_height, normalize_fn=lambda x: x - 0.5
+    )
 
     model = VAE(
         input_height=args.input_height,
@@ -196,11 +221,15 @@ if __name__ == "__main__":
         kl_coeff=args.kl_coeff,
         prior=args.prior,
         posterior=args.posterior,
+        encoder=args.encoder,
+        decoder=args.decoder,
         first_conv=args.first_conv,
         maxpool1=args.maxpool1,
     )
 
-    online_eval = SSLOnlineEvaluator(z_dim=args.enc_out_dim, num_classes=dm.num_classes, drop_p=0.0)
+    online_eval = SSLOnlineEvaluator(
+        z_dim=model.encoder.out_dim, num_classes=dm.num_classes, drop_p=0.0
+    )
 
     trainer = pl.Trainer(
         gpus=args.gpus, max_epochs=args.max_epochs, callbacks=[online_eval]
