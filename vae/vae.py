@@ -65,6 +65,7 @@ class VAE(pl.LightningModule):
         posterior="normal",
         first_conv=False,
         maxpool1=False,
+        unlabeled_batch=False,
     ):
         super(VAE, self).__init__()
 
@@ -73,6 +74,7 @@ class VAE(pl.LightningModule):
         self.input_height = input_height
         self.in_channels = 3
         self.latent_dim = latent_dim
+        self.unlabeled_batch = unlabeled_batch
 
         self.encoder = encoders[encoder](first_conv, maxpool1)
         self.decoder = decoders[decoder](
@@ -102,6 +104,9 @@ class VAE(pl.LightningModule):
         return p, q, z
 
     def step(self, batch, batch_idx):
+        if self.unlabeled_batch:
+            batch = batch[0]
+
         (x1, x2, _), y = batch
 
         z, x1_hat, p, q = self.forward(x1)
@@ -191,6 +196,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # TODO: clean up these if statements
     if args.dataset == "cifar10":
         dm_cls = CIFAR10DataModule
     elif args.dataset == "stl10":
@@ -199,6 +205,10 @@ if __name__ == "__main__":
     dm = dm_cls(
         data_dir="data", batch_size=args.batch_size, num_workers=args.num_workers
     )
+    if args.dataset == "stl10":
+        dm.train_dataloader = dm.train_dataloader_mixed
+        dm.val_dataloader = dm.val_dataloader_mixed
+
     args.input_height = dm.size()[-1]
 
     dm.train_transforms = Transforms(
@@ -225,11 +235,22 @@ if __name__ == "__main__":
         decoder=args.decoder,
         first_conv=args.first_conv,
         maxpool1=args.maxpool1,
+        unlabeled_batch=(args.dataset == "stl10"),
     )
 
     online_eval = SSLOnlineEvaluator(
         z_dim=model.encoder.out_dim, num_classes=dm.num_classes, drop_p=0.0
     )
+
+    if args.dataset == "stl10":
+
+        def to_device(batch, device):
+            (_, _, x), y = batch[1]  # use labelled portion of batch
+            x = x.to(device)
+            y = y.to(device)
+            return x, y
+
+        online_eval.to_device = to_device
 
     trainer = pl.Trainer(
         gpus=args.gpus, max_epochs=args.max_epochs, callbacks=[online_eval]
