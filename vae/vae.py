@@ -216,8 +216,8 @@ if __name__ == "__main__":
     parser.add_argument("--flip", action='store_true')
     parser.add_argument("--jitter_strength", type=float, default=1.)
 
-    parser.add_argument("--prior", default="normal")
-    parser.add_argument("--posterior", default="normal")
+    parser.add_argument("--prior", type=str, default="normal")
+    parser.add_argument("--posterior", type=str, default="normal")
 
     parser.add_argument("--first_conv", action="store_true")
     parser.add_argument("--maxpool1", action="store_true")
