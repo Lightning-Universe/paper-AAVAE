@@ -4,7 +4,7 @@ import random
 
 
 class Identity:
-    def __init__(self, size=32):
+    def __init__(self, size=32, **kwargs):
         self.size = size
 
     def __call__(self, x):
@@ -33,7 +33,7 @@ class GlobalTransform:
 
 
 class LocalTransform:
-    def __init__(self, size=32):
+    def __init__(self, size=32, **kwargs):
         self.transforms = T.Compose([GlobalTransform(), T.RandomResizedCrop(size=size)])
 
     def __call__(self, x):
@@ -48,10 +48,22 @@ class Transforms:
     }
 
     def __init__(
-        self, size, input_transform="original", recon_transform="original", normalize_fn=None
+        self,
+        size,
+        flip=False,
+        jitter_strength=1.,
+        input_transform="original",
+        recon_transform="original",
+        normalize_fn=None
     ):
-        input_transform = [self.transform_map[input_transform](size), T.ToTensor()]
-        recon_transform = [self.transform_map[recon_transform](size), T.ToTensor()]
+
+        input_transform = [self.transform_map[input_transform](
+            size, flip=flip, jitter_strength=jitter_strength
+        ), T.ToTensor()]
+        recon_transform = [self.transform_map[recon_transform](
+            size, flip=flip, jitter_strength=jitter_strength
+        ), T.ToTensor()]
+
         original_transform = [Identity(), T.ToTensor()]
 
         if normalize_fn is not None:

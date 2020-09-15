@@ -52,6 +52,26 @@ def gaussian_likelihood(mean, logscale, sample):
     return log_pxz.sum(dim=(1, 2, 3))
 
 
+class Projection(nn.Module):
+    def __init__(self, input_dim=2048, hidden_dim=2048, output_dim=128):
+        super().__init__()
+        self.output_dim = output_dim
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+
+        if self.hidden_dim > 0:
+            self.model = nn.Sequential(
+                nn.Linear(self.input_dim, self.hidden_dim, bias=True),
+                nn.BatchNorm1d(self.hidden_dim),
+                nn.ReLU(),
+                nn.Linear(self.hidden_dim, self.output_dim, bias=False))
+        else:
+            self.model = nn.Linear(self.input_dim, self.output_dim)
+
+    def forward(self, x):
+        return self.model(x)
+
+
 class VAE(pl.LightningModule):
     def __init__(
         self,
@@ -63,6 +83,7 @@ class VAE(pl.LightningModule):
         decoder="resnet18",
         prior="normal",
         posterior="normal",
+        projection="linear",
         first_conv=False,
         maxpool1=False,
         unlabeled_batch=False,
@@ -75,6 +96,7 @@ class VAE(pl.LightningModule):
         self.in_channels = 3
         self.latent_dim = latent_dim
         self.unlabeled_batch = unlabeled_batch
+        self.projection = projection
 
         self.encoder = encoders[encoder](first_conv, maxpool1)
         self.decoder = decoders[decoder](
@@ -82,8 +104,22 @@ class VAE(pl.LightningModule):
         )
 
         self.log_scale = nn.Parameter(torch.Tensor([0.0]))
-        self.fc_mu = nn.Linear(self.encoder.out_dim, self.latent_dim)
-        self.fc_var = nn.Linear(self.encoder.out_dim, self.latent_dim)
+
+        if self.projection == 'linear':
+            self.fc_mu = Projection(
+                input_dim=self.encoder.out_dim,
+                hidden_dim=0,
+                output_dim=self.latent_dim
+            )
+            self.fc_var = Projection(
+                input_dim=self.encoder.out_dim,
+                hidden_dim=0,
+                output_dim=self.latent_dim
+            )
+        else:
+            self.fc_mu = Projection(input_dim=self.encoder.out_dim, output_dim=self.latent_dim)
+            self.fc_var = Projection(input_dim=self.encoder.out_dim, output_dim=self.latent_dim)
+    
         self.prior = prior
         self.posterior = posterior
 
@@ -173,8 +209,12 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=8)
 
     parser.add_argument("--latent_dim", type=int, default=256)
+    parser.add_argument("--projection", type=str, default='linear', help="linear/non_linear")
     parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--kl_coeff", type=float, default=0.1)
+
+    parser.add_argument("--flip", action='store_true')
+    parser.add_argument("--jitter_strength", type=float, default=1.)
 
     parser.add_argument("--prior", default="normal")
     parser.add_argument("--posterior", default="normal")
@@ -191,7 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("--input_transform", default="original", choices=tf_choices)
     parser.add_argument("--recon_transform", default="original", choices=tf_choices)
 
-    parser.add_argument("--max_epochs", type=int, default=300)
+    parser.add_argument("--max_epochs", type=int, default=200)
     parser.add_argument("--gpus", default="1")
 
     args = parser.parse_args()
@@ -216,6 +256,8 @@ if __name__ == "__main__":
         input_transform=args.input_transform,
         recon_transform=args.recon_transform,
         normalize_fn=lambda x: x - 0.5,
+        flip=args.flip,
+        jitter_strength=args.jitter_strength,
     )
     dm.test_transforms = Transforms(
         size=args.input_height, normalize_fn=lambda x: x - 0.5
@@ -231,6 +273,7 @@ if __name__ == "__main__":
         kl_coeff=args.kl_coeff,
         prior=args.prior,
         posterior=args.posterior,
+        projection=args.projection,
         encoder=args.encoder,
         decoder=args.decoder,
         first_conv=args.first_conv,
