@@ -87,6 +87,8 @@ class VAE(pl.LightningModule):
         first_conv=False,
         maxpool1=False,
         unlabeled_batch=False,
+        max_epochs=100,
+        scheduler=False,
     ):
         super(VAE, self).__init__()
 
@@ -97,6 +99,8 @@ class VAE(pl.LightningModule):
         self.latent_dim = latent_dim
         self.unlabeled_batch = unlabeled_batch
         self.projection = projection
+        self.max_epochs = max_epochs
+        self.scheduler = scheduler
 
         self.encoder = encoders[encoder](first_conv, maxpool1)
         self.decoder = decoders[decoder](
@@ -197,7 +201,20 @@ class VAE(pl.LightningModule):
         return result
 
     def configure_optimizers(self):
-        return torch.optim.Adamax(self.parameters(), lr=self.lr)
+        optimizer =  torch.optim.Adamax(self.parameters(), lr=self.lr)
+
+        if self.scheduler:
+            scheduler = LinearWarmupCosineAnnealingLR(
+                optimizer=optimizer,
+                warmup_epochs=10,
+                max_epochs=self.max_epochs,
+                warmup_start_lr=0,
+                eta_min=1e-6,
+            )
+
+            return [optimizer], [scheduler]
+        else:
+            return optimizer
 
 
 if __name__ == "__main__":
@@ -207,6 +224,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="cifar10", help="stl10/cifar10")
     parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("--scheduler", action='store_true')
 
     parser.add_argument("--latent_dim", type=int, default=256)
     parser.add_argument("--projection", type=str, default='linear', help="linear/non_linear")
@@ -279,6 +297,8 @@ if __name__ == "__main__":
         first_conv=args.first_conv,
         maxpool1=args.maxpool1,
         unlabeled_batch=(args.dataset == "stl10"),
+        max_epochs=args.max_epochs,
+        scheduler=args.scheduler,
     )
 
     online_eval = SSLOnlineEvaluator(
