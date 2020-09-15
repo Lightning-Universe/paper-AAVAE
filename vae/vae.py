@@ -10,6 +10,7 @@ import numpy as np
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
 
+from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
 from pl_bolts.datamodules import CIFAR10DataModule, STL10DataModule
 from pl_bolts.transforms.dataset_normalizations import (
     cifar10_normalization,
