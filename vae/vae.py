@@ -189,12 +189,12 @@ class VAE(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
-        self.log_dict(logs)
+        self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
-        self.log_dict(logs)
+        self.log_dict({f"val_{k}": v for k, v in logs.items()})
         return loss
 
     def configure_optimizers(self):
