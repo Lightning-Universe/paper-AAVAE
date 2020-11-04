@@ -53,6 +53,14 @@ def gaussian_likelihood(mean, logscale, sample):
     return log_pxz.sum(dim=(1, 2, 3))
 
 
+def kl_divergence_mc(p, q, num_samples=1):
+    x = p.rsample([num_samples])
+    log_px = p.log_prob(x)
+    log_qx = q.log_prob(x)
+    # mean over num_samples, sum over z_dim
+    return (log_px - log_qx).mean(dim=0).sum(dim=(1))
+
+
 class Projection(nn.Module):
     def __init__(self, input_dim=2048, hidden_dim=2048, output_dim=128):
         super().__init__()
@@ -156,8 +164,7 @@ class VAE(pl.LightningModule):
         log_qz = q.log_prob(z)
         log_pz = p.log_prob(z)
 
-        kl = log_qz - log_pz
-        kl = kl.sum(dim=(1))  # sum all dims except batch
+        kl = kl_divergence_mc(p, q)
 
         elbo = (kl - log_pxz).mean()
         bpd = elbo / (
@@ -169,11 +176,8 @@ class VAE(pl.LightningModule):
         # TODO: this should be epoch metric
         kurt = kurtosis_score(z)
 
-        # marginal log p(x) using importance sampling
-        # TODO: is this N batch size or number of elements (e.g. 3 * 32 * 32 for CIFAR)
-        # n = torch.tensor(x1.size(0)).type_as(x1)
-        # TODO: log_pz, log_qz need to be reduced over last dim, sum or mean?
-        # marg_log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - torch.log(n)
+        n = torch.tensor(x1.size(0)).type_as(x1)
+        marg_log_px = torch.logsumexp(log_pxz + log_pz.sum(dim=-1) - log_qz.sum(dim=-1), dim=0) - torch.log(n)
 
         logs = {
             "kl": kl.mean(),
@@ -182,16 +186,16 @@ class VAE(pl.LightningModule):
             "kurtosis": kurt,
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
-            # "marginal_log_px": marg_log_px.mean(),
+            "marginal_log_px": marg_log_px.mean(),
         }
 
         return elbo, logs
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
-        kurtosis_score = logs['kurt']
-        self.log('train_kurt', kurtosis_score, on_step=False, on_epoch=True)
-        del logs['kurt']
+        kurtosis_score = logs["kurtosis"]
+        self.log('train_kurtosis', kurtosis_score, on_step=False, on_epoch=True)
+        del logs["kurtosis"]
         self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False)
         return loss
 
