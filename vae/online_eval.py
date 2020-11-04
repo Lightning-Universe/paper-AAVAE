@@ -58,7 +58,7 @@ class SSLOnlineEvaluator(pl.Callback):
 
         return x, y
 
-    def on_train_batch_end(self, trainer, pl_module, batch, batch_idx, dataloader_idx):
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         x, y = self.to_device(batch, pl_module.device)
 
         with torch.no_grad():
@@ -80,7 +80,7 @@ class SSLOnlineEvaluator(pl.Callback):
         metrics = {"ft_callback_mlp_loss": mlp_loss, "ft_callback_mlp_acc": acc}
         pl_module.logger.log_metrics(metrics, step=trainer.global_step)
 
-    def on_validation_batch_end(self, trainer, pl_module, batch, batch_idx, dataloader_idx):
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         x, y = self.to_device(batch, pl_module.device)
 
         with torch.no_grad():
