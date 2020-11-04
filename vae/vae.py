@@ -189,6 +189,9 @@ class VAE(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
+        kurtosis_score = logs['kurt']
+        self.log('train_kurt', kurtosis_score, on_step=False, on_epoch=True)
+        del logs['kurt']
         self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False)
         return loss
 
