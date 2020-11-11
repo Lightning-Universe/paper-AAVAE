@@ -24,7 +24,7 @@ from resnet import (
     resnet50_decoder,
 )
 from online_eval import SSLOnlineEvaluator
-from metrics import gini_score, kurtosis_score
+from metrics import gini_score, KurtosisScore
 from transforms import Transforms
 
 distributions = {
@@ -136,7 +136,8 @@ class VAE(pl.LightningModule):
         self.prior = prior
         self.posterior = posterior
 
-        self.zs = []
+        #self.train_kurtosis = KurtosisScore()
+        #self.val_kurtosis = KurtosisScore()
 
     def forward(self, x):
         x = self.encoder(x)
@@ -174,7 +175,7 @@ class VAE(pl.LightningModule):
         gini = gini_score(z)
 
         # TODO: this should be epoch metric
-        kurt = kurtosis_score(z)
+        #kurt = kurtosis_score(z)
 
         n = torch.tensor(x1.size(0)).type_as(x1)
         marg_log_px = torch.logsumexp(log_pxz + log_pz.sum(dim=-1) - log_qz.sum(dim=-1), dim=0) - torch.log(n)
@@ -183,7 +184,7 @@ class VAE(pl.LightningModule):
             "kl": kl.mean(),
             "elbo": elbo,
             "gini": gini.mean(),
-            "kurtosis": kurt,
+            #"kurtosis": kurt,
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
             "marginal_log_px": marg_log_px.mean(),
@@ -193,15 +194,20 @@ class VAE(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
-        kurtosis_score = logs["kurtosis"]
-        self.log('train_kurtosis', kurtosis_score, on_step=False, on_epoch=True)
-        del logs["kurtosis"]
         self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False)
+
+        #self.train_kurtosis.update(z)
+        #self.log("train_kurtosis_score", self.train_kurtosis, on_step=False, on_epoch=True)
+
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
         self.log_dict({f"val_{k}": v for k, v in logs.items()})
+
+        #self.val_kurtosis.update(z)
+        #self.log("val_kurtosis_score", self.val_kurtosis, on_step=False, on_epoch=True)
+
         return loss
 
     def configure_optimizers(self):

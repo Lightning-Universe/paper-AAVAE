@@ -33,11 +33,17 @@ def gini_score(x):
     return scores
 
 
-def kurtosis_score(x):
-    """
-    Measures kurtosis of batch
-    """
-    k = []
-    x = x.t().detach().cpu().numpy()  # [n, z_dim] => [z_dim, n]
-    scores = torch.tensor([kurtosis(dim) for dim in x])
-    return scores.mean()
+class KurtosisScore(Metric):
+    def __init__(self):
+        super().__init__(dist_sync_on_step=False, compute_on_step=False)
+
+        #self.add_state("sampled_vectors", default=[], dist_reduce_fx="cat")
+        self.add_state("sampled_vectors", default=[], dist_reduce_fx=None)
+
+    def update(self, x: torch.Tensor):
+        self.sampled_vectors.append(x.detach())
+
+    def compute(self):
+        x = torch.cat(self.sampled_vectors, dim=0).t().cpu().numpy()
+        scores = torch.tensor([kurtosis(dim) for dim in x])
+        return scores.mean()
