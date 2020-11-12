@@ -87,6 +87,7 @@ TODOs:
 2. fix kurtosis for epoch
 3. take a look at transform for the latest set of runs
 (separete views for kl, input and reconstruction, confirm this)
+4. normalization not used for discretized_logistic?
 """
 class VAE(pl.LightningModule):
     def __init__(
