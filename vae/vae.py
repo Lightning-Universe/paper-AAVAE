@@ -15,6 +15,7 @@ from pl_bolts.datamodules import CIFAR10DataModule, STL10DataModule
 from pl_bolts.transforms.dataset_normalizations import (
     cifar10_normalization,
     stl10_normalization,
+    imagenet_normalization
 )
 
 from resnet import (
@@ -53,105 +54,134 @@ def gaussian_likelihood(mean, logscale, sample):
     return log_pxz.sum(dim=(1, 2, 3))
 
 
-def kl_divergence_mc(p, q, num_samples=1):
-    x = p.rsample([num_samples])
-    log_px = p.log_prob(x)
-    log_qx = q.log_prob(x)
-    # mean over num_samples, sum over z_dim
-    return (log_px - log_qx).mean(dim=0).sum(dim=(1))
+class ProjectionEncoder(nn.Module):
+    def __init__(
+        self,
+        input_dim=2048,
+        hidden_dim=2048,
+        output_dim=128
+    ):
+        super(ProjectionEncoder, self).__init__()
 
-
-class Projection(nn.Module):
-    def __init__(self, input_dim=2048, hidden_dim=2048, output_dim=128):
-        super().__init__()
-        self.output_dim = output_dim
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
+        self.output_dim = output_dim
 
-        if self.hidden_dim > 0:
-            self.model = nn.Sequential(
-                nn.Linear(self.input_dim, self.hidden_dim, bias=True),
-                nn.BatchNorm1d(self.hidden_dim),
-                nn.ReLU(),
-                nn.Linear(self.hidden_dim, self.output_dim, bias=False))
-        else:
-            self.model = nn.Linear(self.input_dim, self.output_dim)
+        self.first_layer = nn.Sequential(
+            nn.Linear(self.input_dim, self.hidden_dim, bias=True),
+            nn.BatchNorm1d(self.hidden_dim),
+            nn.ReLU()
+        )
+
+        self.mu = nn.Linear(self.hidden_dim, self.output_dim, bias=False)
+        self.logvar = nn.Linear(self.hidden_dim, self.output_dim, bias=False)
 
     def forward(self, x):
-        return self.model(x)
+        x = self.first_layer(x)
+        return self.mu(x), self.logvar(x)
 
 
+"""
+TODOs:
+1. take a look at kl computation, elbo, log_pxz from discretized logistic and marg_log_px
+2. fix kurtosis for epoch
+3. take a look at transform for the latest set of runs
+(separete views for kl, input and reconstruction, confirm this)
+"""
 class VAE(pl.LightningModule):
     def __init__(
         self,
         input_height,
+        num_samples,
+        gpus=1,
+        batch_size=32,
         kl_coeff=0.1,
-        latent_dim=256,
-        lr=1e-4,
+        h_dim=2048,
+        latent_dim=128,
+        learning_rate=1e-4,
         encoder="resnet18",
         decoder="resnet18",
         prior="normal",
         posterior="normal",
-        projection="linear",
         first_conv=False,
         maxpool1=False,
-        unlabeled_batch=False,
+        dataset='cifar10',
         max_epochs=100,
-        scheduler=False,
+        warmup_epochs=10,
+        warmup_start_lr=0.,
+        eta_min=1e-6,
+        **kwargs
     ):
         super(VAE, self).__init__()
 
-        self.save_hyperparameters()
-        self.lr = lr
         self.input_height = input_height
-        self.in_channels = 3
-        self.latent_dim = latent_dim
-        self.unlabeled_batch = unlabeled_batch
-        self.projection = projection
-        self.max_epochs = max_epochs
-        self.scheduler = scheduler
+        self.kl_coeff = kl_coeff
+        self.prior = prior
+        self.posterior = posterior
 
-        self.encoder = encoders[encoder](first_conv, maxpool1)
+        self.h_dim = h_dim
+        self.latent_dim = latent_dim
+
+        self.dataset = dataset
+        self.first_conv = first_conv
+        self.maxpool1 = maxpool1
+
+        self.learning_rate = learning_rate
+        self.max_epochs = max_epochs
+        self.warmup_epochs = warmup_epochs
+        self.warmup_start_lr = warmup_start_lr
+        self.eta_min = eta_min
+
+        self.gpus = gpus
+        self.batch_size = batch_size
+        self.num_samples = num_samples
+
+        global_batch_size = self.gpus * self.batch_size if self.gpus > 0 else self.batch_size
+        self.train_iters_per_epoch = self.num_samples // global_batch_size
+
+        self.in_channels = 3
+
+        self.encoder = encoders[encoder](self.first_conv, self.maxpool1)
         self.decoder = decoders[decoder](
-            self.latent_dim, self.input_height, first_conv, maxpool1
+            self.latent_dim, self.input_height, self.first_conv, self.maxpool1
         )
 
         self.log_scale = nn.Parameter(torch.Tensor([0.0]))
 
-        if self.projection == 'linear':
-            self.fc_mu = Projection(
-                input_dim=self.encoder.out_dim,
-                hidden_dim=0,
-                output_dim=self.latent_dim
-            )
-            self.fc_var = Projection(
-                input_dim=self.encoder.out_dim,
-                hidden_dim=0,
-                output_dim=self.latent_dim
-            )
-        else:
-            self.fc_mu = Projection(input_dim=self.encoder.out_dim, output_dim=self.latent_dim)
-            self.fc_var = Projection(input_dim=self.encoder.out_dim, output_dim=self.latent_dim)
-    
-        self.prior = prior
-        self.posterior = posterior
+        self.projection = ProjectionEncoder(
+            input_dim=self.h_dim,
+            hidden_dim=self.h_dim,
+            output_dim=self.latent_dim
+        )
 
         #self.train_kurtosis = KurtosisScore()
         #self.val_kurtosis = KurtosisScore()
 
     def forward(self, x):
         x = self.encoder(x)
-        mu = self.fc_mu(x)
-        log_var = self.fc_var(x)
-        p, q, z = self.sample(mu, log_var)
+        mu, logvar = self.projection(x)
+
+        p, q, z = self.sample(mu, logvar)
         return z, self.decoder(z), p, q
 
-    def sample(self, mu, log_var):
-        std = torch.exp(log_var / 2)
+    def sample(self, mu, logvar):
+        std = torch.exp(logvar / 2)
+
         p = distributions[self.prior](torch.zeros_like(mu), torch.ones_like(std))
         q = distributions[self.posterior](mu, std)
+
         z = q.rsample()
         return p, q, z
+
+    # TODO: verify kl computation
+    def kl_divergence_mc(self, p, q, num_samples=1):
+        z = p.rsample([num_samples])
+
+        log_pz = p.log_prob(z)
+        log_qz = q.log_prob(z)
+
+        # mean over num_samples, sum over z_dim
+        return (log_pz - log_qz).mean(dim=0).sum(dim=(1))
 
     def step(self, batch, batch_idx):
         if self.unlabeled_batch:
@@ -165,7 +195,7 @@ class VAE(pl.LightningModule):
         log_qz = q.log_prob(z)
         log_pz = p.log_prob(z)
 
-        kl = kl_divergence_mc(p, q)
+        kl = self.kl_coeff * self.kl_divergence_mc(p, q)
 
         elbo = (kl - log_pxz).mean()
         bpd = elbo / (
@@ -196,6 +226,7 @@ class VAE(pl.LightningModule):
         loss, logs = self.step(batch, batch_idx)
         self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False)
 
+        # takes z sampled from latent
         #self.train_kurtosis.update(z)
         #self.log("train_kurtosis_score", self.train_kurtosis, on_step=False, on_epoch=True)
 
@@ -205,79 +236,130 @@ class VAE(pl.LightningModule):
         loss, logs = self.step(batch, batch_idx)
         self.log_dict({f"val_{k}": v for k, v in logs.items()})
 
+        # takes z sampled from latent
         #self.val_kurtosis.update(z)
         #self.log("val_kurtosis_score", self.val_kurtosis, on_step=False, on_epoch=True)
 
         return loss
 
     def configure_optimizers(self):
-        optimizer =  torch.optim.Adamax(self.parameters(), lr=self.lr)
+        optimizer = Adam(self.parameters(), lr=self.learning_rate)
 
-        if self.scheduler:
-            scheduler = LinearWarmupCosineAnnealingLR(
-                optimizer=optimizer,
-                warmup_epochs=10,
-                max_epochs=self.max_epochs,
-                warmup_start_lr=0,
-                eta_min=1e-6,
-            )
+        # this needs to be per step
+        self.warmup_epochs = self.train_iters_per_epoch * self.warmup_epochs
+        self.max_epochs = self.train_iters_per_epoch * self.max_epochs
 
-            return [optimizer], [scheduler]
-        else:
-            return optimizer
+        linear_warmup_cosine_decay = LinearWarmupCosineAnnealingLR(
+            optimizer=optimizer,
+            warmup_epochs=self.warmup_epochs,
+            max_epochs=self.max_epochs,
+            warmup_start_lr=self.warmup_start_lr,
+            eta_min=self.eta_min,
+        )
+
+        scheduler = {
+            'scheduler': linear_warmup_cosine_decay,
+            'interval': 'step',
+            'frequency': 1
+        }
+
+        return [optimizer], [scheduler]
 
 
 if __name__ == "__main__":
-    # TODO: model specific args and stuff
     pl.seed_everything(0)
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default="cifar10", help="stl10/cifar10")
-    parser.add_argument("--num_workers", type=int, default=8)
-    parser.add_argument("--scheduler", action='store_true')
 
-    parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--projection", type=str, default='linear', help="linear/non_linear")
-    parser.add_argument("--learning_rate", type=float, default=1e-3)
-    parser.add_argument("--kl_coeff", type=float, default=0.1)
+    # encoder/decoder params
+    parser.add_argument("--encoder", default="resnet50", choices=encoders.keys())
+    parser.add_argument("--decoder", default="resnet50", choices=decoders.keys())
+    parser.add_argument('--h_dim', type=int, default=2048)
+    parser.add_argument('--first_conv', type=bool, default=True)
+    parser.add_argument('--maxpool1', type=bool, default=True)
 
+    # vae params
+    parser.add_argument('--kl_coeff', type=float, default=1.)  # try 10., 1., 0.1, 0.01
+    parser.add_argument('--latent_dim', type=int, default=128)  # try 64, 128, 256, 512
+    parser.add_argument('--prior', type=str, default='normal')  # normal/laplace
+    parser.add_argument('--posterior', type=str, default='normal')  # normal/laplace
+
+    # optimizer param
+    parser.add_argument('--learning_rate', type=float, default=1e-3)  # try both 1e-3/1e-4
+    parser.add_argument('--warmup_epochs', type=int, default=10)
+    parser.add_argument('--max_epochs', type=int, default=200)
+    parser.add_argument('--warmup_start_lr', type=float, default=0.)
+    parser.add_argument('--eta_min', type=float, default=1e-6)
+
+    # training params
+    parser.add_argument('--gpus', type=int, default=1)
+    parser.add_argument("--fp32", action='store_true')
+
+    # datamodule params
+    parser.add_argument('--data_path', type=str, default='.')
+    parser.add_argument('--dataset', type=str, default="stl10")  # cifar10, stl10, imagenet
+    parser.add_argument('--num_samples', type=int, default=1)
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--num_workers', type=int, default=8)
+
+    # transforms param
+    parser.add_argument('--input_height', type=int, default=32)
+    parser.add_argument('--gaussian_blur', type=bool, default=True)
+    parser.add_argument('--jitter_strength', type=float, default=1.)
     parser.add_argument("--flip", action='store_true')
-    parser.add_argument("--jitter_strength", type=float, default=1.)
-
-    parser.add_argument("--prior", type=str, default="normal")
-    parser.add_argument("--posterior", type=str, default="normal")
-
-    parser.add_argument("--first_conv", action="store_true")
-    parser.add_argument("--maxpool1", action="store_true")
-
-    parser.add_argument("--encoder", default="resnet18", choices=encoders.keys())
-    parser.add_argument("--decoder", default="resnet18", choices=decoders.keys())
-
-    parser.add_argument("--batch_size", type=int, default=256)
 
     tf_choices = ["original", "global", "local"]
     parser.add_argument("--input_transform", default="original", choices=tf_choices)
     parser.add_argument("--recon_transform", default="original", choices=tf_choices)
 
-    parser.add_argument("--max_epochs", type=int, default=200)
-    parser.add_argument("--gpus", default="1")
-
     args = parser.parse_args()
 
-    # TODO: clean up these if statements
-    if args.dataset == "cifar10":
-        dm_cls = CIFAR10DataModule
-    elif args.dataset == "stl10":
-        dm_cls = STL10DataModule
+    dm = None
+    if args.dataset == 'cifar10':
+        dm = CIFAR10DataModule(
+            data_dir=args.data_path,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers
+        )
 
-    dm = dm_cls(
-        data_dir="data", batch_size=args.batch_size, num_workers=args.num_workers
-    )
-    if args.dataset == "stl10":
+        args.num_samples = dm.num_samples
+        args.input_height = dm.size()[-1]
+
+        args.maxpool1 = False
+        args.first_conv = False
+        normalization = cifar10_normalization()
+
+        args.gaussian_blur = False
+        args.jitter_strength = 0.5
+    elif args.dataset == 'stl10':
+        dm = STL10DataModule(
+            data_dir=args.data_path,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers
+        )
+
         dm.train_dataloader = dm.train_dataloader_mixed
         dm.val_dataloader = dm.val_dataloader_mixed
+        args.num_samples = dm.num_unlabeled_samples
+        args.input_height = dm.size()[-1]
 
-    args.input_height = dm.size()[-1]
+        args.maxpool1 = False
+        args.first_conv = True
+        normalization = stl10_normalization()
+    elif args.dataset == 'imagenet':
+        dm = ImagenetDataModule(
+            data_dir=args.data_path,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers
+        )
+
+        args.num_samples = dm.num_samples
+        args.input_height = dm.size()[-1]
+
+        args.maxpool1 = True
+        args.first_conv = True
+        normalization = imagenet_normalization()
+    else:
+        raise NotImplementedError("other datasets have not been implemented till now")
 
     dm.train_transforms = Transforms(
         size=args.input_height,
@@ -294,6 +376,8 @@ if __name__ == "__main__":
         size=args.input_height, normalize_fn=lambda x: x - 0.5
     )
 
+    # model init
+    model = VAE(**args.__dict__)
     model = VAE(
         input_height=args.input_height,
         latent_dim=args.latent_dim,
@@ -312,20 +396,20 @@ if __name__ == "__main__":
     )
 
     online_eval = SSLOnlineEvaluator(
-        z_dim=model.encoder.out_dim, num_classes=dm.num_classes, drop_p=0.0
+        z_dim=model.encoder.out_dim,
+        num_classes=dm.num_classes,
+        drop_p=0.0,
+        hidden_dim=None,
+        dataset=args.dataset
     )
-
-    if args.dataset == "stl10":
-
-        def to_device(batch, device):
-            (_, _, x), y = batch[1]  # use labelled portion of batch
-            x = x.to(device)
-            y = y.to(device)
-            return x, y
-
-        online_eval.to_device = to_device
 
     trainer = pl.Trainer(
-        gpus=args.gpus, max_epochs=args.max_epochs, callbacks=[online_eval]
+        max_epochs=args.max_epochs,
+        gpus=args.gpus,
+        distributed_backend='ddp' if args.gpus > 1 else None,
+        sync_batchnorm=True if args.gpus > 1 else False,
+        precision=32 if args.fp32 else 16,
+        callbacks=[online_evaluator],
     )
+
     trainer.fit(model, dm)
