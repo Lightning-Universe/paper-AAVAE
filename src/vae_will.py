@@ -187,9 +187,7 @@ class VAE(pl.LightningModule):
         z = q.rsample()
         return p, q, z
 
-    def kl_divergence_mc(self, p, q):
-        z = p.rsample()
-
+    def kl_divergence_mc(self, p, q, z):
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
@@ -210,9 +208,7 @@ class VAE(pl.LightningModule):
         x1_P, x1_Q, x1_z = self.sample(x1_mu, x1_logvar)
 
         # kl
-        log_qz = x1_Q.log_prob(x1_z)
-        log_pz = x1_P.log_prob(x1_z)
-        kl = self.kl_coeff * self.kl_divergence_mc(x1_P, x1_Q)
+        kl = self.kl_coeff * self.kl_divergence_mc(x1_P, x1_Q, x1_z)
 
         # (batch, num_mc_samples) -> (batch * num_mc_samples)
         kl = kl.view(-1)
