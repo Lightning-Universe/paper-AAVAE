@@ -288,8 +288,6 @@ class VAE(pl.LightningModule):
         #self.val_kurtosis.update(z)
         #self.log("val_kurtosis_score", self.val_kurtosis, on_step=False, on_epoch=True)
 
-        return loss
-
     def setup(self, stage: str):
         gpus = 0 if not isinstance(self.trainer.gpus, int) else self.trainer.gpus
         global_batch_size = gpus * self.batch_size if gpus > 0 else self.batch_size
