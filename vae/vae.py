@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 import torchvision.transforms as T
 import numpy as np
+from torch.optim import Adam
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
