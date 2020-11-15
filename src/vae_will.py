@@ -7,9 +7,11 @@ from torchvision.datasets import CIFAR10
 import torchvision.transforms as T
 import numpy as np
 from torch.optim import Adam
+from src import utils
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
+from src.transforms import MultiViewEvalTransform, MultiViewTrainTransform
 
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
 from pl_bolts.datamodules import CIFAR10DataModule, STL10DataModule, ImagenetDataModule
@@ -94,8 +96,7 @@ class VAE(pl.LightningModule):
     def __init__(
         self,
         input_height,
-        num_samples,
-        gpus=1,
+        num_train_samples,
         batch_size=32,
         kl_coeff=0.1,
         h_dim=2048,
@@ -112,12 +113,15 @@ class VAE(pl.LightningModule):
         warmup_epochs=10,
         warmup_start_lr=0.,
         eta_min=1e-6,
+        num_mc_samples=7,
         **kwargs
     ):
         super(VAE, self).__init__()
+        self.save_hyperparameters()
 
         self.input_height = input_height
         self.kl_coeff = kl_coeff
+        self.num_mc_samples = num_mc_samples
         self.prior = prior
         self.posterior = posterior
         self.unlabeled_batch = False
@@ -135,12 +139,8 @@ class VAE(pl.LightningModule):
         self.warmup_start_lr = warmup_start_lr
         self.eta_min = eta_min
 
-        self.gpus = gpus
         self.batch_size = batch_size
-        self.num_samples = num_samples
-
-        global_batch_size = self.gpus * self.batch_size if self.gpus > 0 else self.batch_size
-        self.train_iters_per_epoch = self.num_samples // global_batch_size
+        self.num_train_samples = num_train_samples
 
         self.in_channels = 3
 
@@ -167,51 +167,89 @@ class VAE(pl.LightningModule):
         p, q, z = self.sample(mu, logvar)
         return z, self.decoder(z), p, q
 
-    def sample(self, mu, logvar):
-        std = torch.exp(logvar / 2)
+    def sample(self, z_mu, z_var):
+        num_train_samples = self.num_mc_samples
 
-        p = distributions[self.prior](torch.zeros_like(mu), torch.ones_like(std))
-        q = distributions[self.posterior](mu, std)
+        # expand dims to sample all at once
+        # (batch, z_dim) -> (batch, num_train_samples, z_dim)
+        z_mu = z_mu.unsqueeze(1)
+        z_mu = utils.tile(z_mu, 1, num_train_samples)
+
+        # (batch, z_dim) -> (batch, num_train_samples, z_dim)
+        z_var = z_var.unsqueeze(1)
+        z_var = utils.tile(z_var, 1, num_train_samples)
+
+        std = torch.exp(z_var/2)
+
+        p = distributions[self.prior](torch.zeros_like(z_mu), torch.ones_like(std))
+        q = distributions[self.posterior](z_mu, std)
 
         z = q.rsample()
         return p, q, z
 
-    # TODO: verify kl computation
-    def kl_divergence_mc(self, p, q, num_samples=1):
-        z = p.rsample([num_samples])
+    def kl_divergence_mc(self, p, q):
+        z = p.rsample()
 
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
-        # mean over num_samples, sum over z_dim
-        return (log_pz - log_qz).mean(dim=0).sum(dim=(1))
+        # mean over num_train_samples, sum over z_dim
+        return (log_pz - log_qz).sum(dim=2)
 
     def step(self, batch, batch_idx):
         if self.unlabeled_batch:
             batch = batch[0]
 
-        (x1, x2, _), y = batch
+        (x1, x2, x3), y = batch
 
-        z, x1_hat, p, q = self.forward(x1)
+        # --------------------------
+        # use x1 for KL divergence
+        # --------------------------
+        x1 = self.encoder(x1)
+        x1_mu, x1_logvar = self.projection(x1)
+        x1_P, x1_Q, x1_z = self.sample(x1_mu, x1_logvar)
 
-        log_pxz = discretized_logistic(x1_hat, self.log_scale, x2)
-        log_qz = q.log_prob(z)
-        log_pz = p.log_prob(z)
+        # kl
+        log_qz = x1_Q.log_prob(x1_z)
+        log_pz = x1_P.log_prob(x1_z)
+        kl = self.kl_coeff * self.kl_divergence_mc(x1_P, x1_Q)
 
-        kl = self.kl_coeff * self.kl_divergence_mc(p, q)
+        # (batch, num_mc_samples) -> (batch * num_mc_samples)
+        kl = kl.view(-1)
+
+        # --------------------------
+        # use x2 for reconstruction
+        # --------------------------
+        with torch.no_grad():
+            x2 = self.encoder(x2)
+            x2_mu, x2_logvar = self.projection(x2)
+            x2_P, x2_Q, x2_z = self.sample(x2_mu, x2_logvar)
+
+        # since we use MC sampling, the latent will have (b, num_mc_samples, hidden_dim)
+        # convert (b, num_mc_samples, hidden_dim) -> (b * num_mc_samples, hidden_dim)
+        x2_z = x2_z.view(-1, x2_z.size(-1))
+        x2_hat = self.decoder(x2_z)
+
+        # --------------------------
+        # use x2_hat and x3 for log likelihood
+        # --------------------------
+        # since we use MC sampling, x3 also needs to be duplicated across num samples
+        # (batch, channels, width, height) -> (batch * num_mc_samples, channels, width, height)
+        x3 = utils.tile(x3, 0, self.num_mc_samples)
+        log_pxz = gaussian_likelihood(x2_hat, self.log_scale, x3)
 
         elbo = (kl - log_pxz).mean()
         bpd = elbo / (
             self.input_height * self.input_height * self.in_channels * np.log(2.0)
         )
 
-        gini = gini_score(z)
+        gini = gini_score(x1_z)
 
         # TODO: this should be epoch metric
         #kurt = kurtosis_score(z)
 
-        n = torch.tensor(x1.size(0)).type_as(x1)
-        marg_log_px = torch.logsumexp(log_pxz + log_pz.sum(dim=-1) - log_qz.sum(dim=-1), dim=0) - torch.log(n)
+        # n = torch.tensor(x1.size(0)).type_as(x1)
+        # marg_log_px = torch.logsumexp(log_pxz + log_pz.sum(dim=-1) - log_qz.sum(dim=-1), dim=0) - torch.log(n)
 
         logs = {
             "kl": kl.mean(),
@@ -220,7 +258,7 @@ class VAE(pl.LightningModule):
             #"kurtosis": kurt,
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
-            "marginal_log_px": marg_log_px.mean(),
+            # "marginal_log_px": marg_log_px.mean(),
         }
 
         return elbo, logs
@@ -244,6 +282,11 @@ class VAE(pl.LightningModule):
         #self.log("val_kurtosis_score", self.val_kurtosis, on_step=False, on_epoch=True)
 
         return loss
+
+    def setup(self, stage: str):
+        gpus = 0 if not isinstance(self.trainer.gpus, int) else self.trainer.gpus
+        global_batch_size = gpus * self.batch_size if gpus > 0 else self.batch_size
+        self.train_iters_per_epoch = self.num_train_samples // global_batch_size
 
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.learning_rate)
@@ -272,6 +315,7 @@ class VAE(pl.LightningModule):
 if __name__ == "__main__":
     pl.seed_everything(0)
     parser = argparse.ArgumentParser()
+    parser = pl.Trainer.add_argparse_args(parser)
 
     # encoder/decoder params
     parser.add_argument("--encoder", default="resnet50", choices=encoders.keys())
@@ -289,30 +333,20 @@ if __name__ == "__main__":
     # optimizer param
     parser.add_argument('--learning_rate', type=float, default=1e-3)  # try both 1e-3/1e-4
     parser.add_argument('--warmup_epochs', type=int, default=10)
-    parser.add_argument('--max_epochs', type=int, default=200)
+    parser.add_argument('--num_mc_samples', type=int, default=1)
     parser.add_argument('--warmup_start_lr', type=float, default=0.)
     parser.add_argument('--eta_min', type=float, default=1e-6)
-
-    # training params
-    parser.add_argument('--gpus', type=int, default=0)
-    parser.add_argument("--fp16", action='store_true')
 
     # datamodule params
     parser.add_argument('--data_path', type=str, default='.')
     parser.add_argument('--dataset', type=str, default="cifar10")  # cifar10, stl10, imagenet
-    parser.add_argument('--num_samples', type=int, default=1)
+    parser.add_argument('--num_train_samples', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_workers', type=int, default=8)
 
     # transforms param
     parser.add_argument('--input_height', type=int, default=32)
-    parser.add_argument('--gaussian_blur', type=bool, default=True)
-    parser.add_argument('--jitter_strength', type=float, default=1.)
-    parser.add_argument("--flip", action='store_true')
-
-    tf_choices = ["original", "global", "local"]
-    parser.add_argument("--input_transform", default="original", choices=tf_choices)
-    parser.add_argument("--recon_transform", default="original", choices=tf_choices)
+    parser.add_argument('--gaussian_blur', type=int, default=1)
 
     args = parser.parse_args()
 
@@ -324,15 +358,13 @@ if __name__ == "__main__":
             num_workers=args.num_workers
         )
 
-        args.num_samples = dm.num_samples
+        args.num_train_samples = dm.num_samples
         args.input_height = dm.size()[-1]
 
         args.maxpool1 = False
         args.first_conv = False
         normalization = cifar10_normalization()
 
-        args.gaussian_blur = False
-        args.jitter_strength = 0.5
     elif args.dataset == 'stl10':
         dm = STL10DataModule(
             data_dir=args.data_path,
@@ -342,7 +374,7 @@ if __name__ == "__main__":
 
         dm.train_dataloader = dm.train_dataloader_mixed
         dm.val_dataloader = dm.val_dataloader_mixed
-        args.num_samples = dm.num_unlabeled_samples
+        args.num_train_samples = dm.num_unlabeled_samples
         args.input_height = dm.size()[-1]
 
         args.maxpool1 = False
@@ -355,7 +387,7 @@ if __name__ == "__main__":
             num_workers=args.num_workers
         )
 
-        args.num_samples = dm.num_samples
+        args.num_train_samples = dm.num_samples
         args.input_height = dm.size()[-1]
 
         args.maxpool1 = True
@@ -364,25 +396,14 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError("other datasets have not been implemented till now")
 
-    dm.train_transforms = Transforms(
-        size=args.input_height,
-        input_transform=args.input_transform,
-        recon_transform=args.recon_transform,
-        normalize_fn=lambda x: x - 0.5,
-        flip=args.flip,
-        jitter_strength=args.jitter_strength,
-    )
-    dm.test_transforms = Transforms(
-        size=args.input_height, normalize_fn=lambda x: x - 0.5
-    )
-    dm.val_transforms = Transforms(
-        size=args.input_height, normalize_fn=lambda x: x - 0.5
-    )
+    dm.train_transforms = MultiViewTrainTransform(normalization, gaussian_blur=args.gaussian_blur, num_views=3, input_height=args.input_height)
+    dm.val_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
+    dm.test_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
 
     # model init
-    model = VAE(**args.__dict__)
     model = VAE(
-        num_samples=args.num_samples,
+        num_mc_samples=args.num_mc_samples,
+        num_train_samples=args.num_train_samples,
         input_height=args.input_height,
         latent_dim=args.latent_dim,
         lr=args.learning_rate,
@@ -404,12 +425,6 @@ if __name__ == "__main__":
         hidden_dim=None,
     )
 
-    trainer = pl.Trainer(
-        max_epochs=args.max_epochs,
-        gpus=args.gpus,
-        distributed_backend='ddp' if args.gpus > 1 else None,
-        precision=16 if args.fp16 else 32,
-        callbacks=[online_evaluator],
-    )
+    trainer = pl.Trainer.from_argparse_args(args, callbacks=[online_evaluator])
 
     trainer.fit(model, dm)
