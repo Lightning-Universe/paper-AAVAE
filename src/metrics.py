@@ -1,6 +1,6 @@
 import torch
 from scipy.stats import kurtosis
-
+from pytorch_lightning.metrics import Metric
 
 def gini_score(x):
     """

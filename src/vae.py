@@ -12,22 +12,22 @@ import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
 
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
-from pl_bolts.datamodules import CIFAR10DataModule, STL10DataModule
+from pl_bolts.datamodules import CIFAR10DataModule, STL10DataModule, ImagenetDataModule
 from pl_bolts.transforms.dataset_normalizations import (
     cifar10_normalization,
     stl10_normalization,
     imagenet_normalization
 )
 
-from vae.resnet import (
+from src.resnet import (
     resnet18_encoder,
     resnet18_decoder,
     resnet50_encoder,
     resnet50_decoder,
 )
-from vae.online_eval import SSLOnlineEvaluator
-from vae.metrics import gini_score, KurtosisScore
-from vae.transforms import Transforms
+from src.online_eval import SSLOnlineEvaluator
+from src.metrics import gini_score, KurtosisScore
+from src.transforms import Transforms
 
 distributions = {
     "laplace": torch.distributions.Laplace,
@@ -120,6 +120,7 @@ class VAE(pl.LightningModule):
         self.kl_coeff = kl_coeff
         self.prior = prior
         self.posterior = posterior
+        self.unlabeled_batch = False
 
         self.h_dim = h_dim
         self.latent_dim = latent_dim
@@ -279,7 +280,7 @@ if __name__ == "__main__":
     parser.add_argument('--first_conv', type=bool, default=True)
     parser.add_argument('--maxpool1', type=bool, default=True)
 
-    # vae params
+    # src params
     parser.add_argument('--kl_coeff', type=float, default=1.)  # try 10., 1., 0.1, 0.01
     parser.add_argument('--latent_dim', type=int, default=128)  # try 64, 128, 256, 512
     parser.add_argument('--prior', type=str, default='normal')  # normal/laplace
@@ -293,12 +294,12 @@ if __name__ == "__main__":
     parser.add_argument('--eta_min', type=float, default=1e-6)
 
     # training params
-    parser.add_argument('--gpus', type=int, default=1)
-    parser.add_argument("--fp32", action='store_true')
+    parser.add_argument('--gpus', type=int, default=0)
+    parser.add_argument("--fp16", action='store_true')
 
     # datamodule params
     parser.add_argument('--data_path', type=str, default='.')
-    parser.add_argument('--dataset', type=str, default="stl10")  # cifar10, stl10, imagenet
+    parser.add_argument('--dataset', type=str, default="cifar10")  # cifar10, stl10, imagenet
     parser.add_argument('--num_samples', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_workers', type=int, default=8)
@@ -381,28 +382,26 @@ if __name__ == "__main__":
     # model init
     model = VAE(**args.__dict__)
     model = VAE(
+        num_samples=args.num_samples,
         input_height=args.input_height,
         latent_dim=args.latent_dim,
         lr=args.learning_rate,
         kl_coeff=args.kl_coeff,
         prior=args.prior,
         posterior=args.posterior,
-        projection=args.projection,
         encoder=args.encoder,
         decoder=args.decoder,
         first_conv=args.first_conv,
         maxpool1=args.maxpool1,
         unlabeled_batch=(args.dataset == "stl10"),
         max_epochs=args.max_epochs,
-        scheduler=args.scheduler,
     )
 
-    online_eval = SSLOnlineEvaluator(
+    online_evaluator = SSLOnlineEvaluator(
         z_dim=model.encoder.out_dim,
         num_classes=dm.num_classes,
         drop_p=0.0,
         hidden_dim=None,
-        dataset=args.dataset
     )
 
     trainer = pl.Trainer(
@@ -410,7 +409,7 @@ if __name__ == "__main__":
         gpus=args.gpus,
         distributed_backend='ddp' if args.gpus > 1 else None,
         sync_batchnorm=True if args.gpus > 1 else False,
-        precision=32 if args.fp32 else 16,
+        precision=16 if args.fp16 else 32,
         callbacks=[online_evaluator],
     )
 

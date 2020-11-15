@@ -12,7 +12,7 @@ import pytorch_lightning.metrics.functional as FM
 from pl_bolts.datamodules import CIFAR10DataModule
 from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 
-from vae import VAE
+from src import VAE
 
 
 class FineTuner(pl.LightningModule):
