@@ -96,7 +96,7 @@ class VAE(pl.LightningModule):
     def __init__(
         self,
         input_height,
-        num_samples,
+        num_train_samples,
         batch_size=32,
         kl_coeff=0.1,
         h_dim=2048,
@@ -117,6 +117,7 @@ class VAE(pl.LightningModule):
         **kwargs
     ):
         super(VAE, self).__init__()
+        self.save_hyperparameters()
 
         self.input_height = input_height
         self.kl_coeff = kl_coeff
@@ -139,7 +140,7 @@ class VAE(pl.LightningModule):
         self.eta_min = eta_min
 
         self.batch_size = batch_size
-        self.num_samples = num_samples
+        self.num_train_samples = num_train_samples
 
         self.in_channels = 3
 
@@ -167,16 +168,16 @@ class VAE(pl.LightningModule):
         return z, self.decoder(z), p, q
 
     def sample(self, z_mu, z_var):
-        num_samples = self.num_mc_samples
+        num_train_samples = self.num_mc_samples
 
         # expand dims to sample all at once
-        # (batch, z_dim) -> (batch, num_samples, z_dim)
+        # (batch, z_dim) -> (batch, num_train_samples, z_dim)
         z_mu = z_mu.unsqueeze(1)
-        z_mu = utils.tile(z_mu, 1, num_samples)
+        z_mu = utils.tile(z_mu, 1, num_train_samples)
 
-        # (batch, z_dim) -> (batch, num_samples, z_dim)
+        # (batch, z_dim) -> (batch, num_train_samples, z_dim)
         z_var = z_var.unsqueeze(1)
-        z_var = utils.tile(z_var, 1, num_samples)
+        z_var = utils.tile(z_var, 1, num_train_samples)
 
         std = torch.exp(z_var/2)
 
@@ -192,7 +193,7 @@ class VAE(pl.LightningModule):
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
-        # mean over num_samples, sum over z_dim
+        # mean over num_train_samples, sum over z_dim
         return (log_pz - log_qz).sum(dim=2)
 
     def step(self, batch, batch_idx):
@@ -233,7 +234,7 @@ class VAE(pl.LightningModule):
         # use x2_hat and x3 for log likelihood
         # --------------------------
         # since we use MC sampling, x3 also needs to be duplicated across num samples
-        # (batch, channels, width, height) -> (batch * num_samples, channels, width, height)
+        # (batch, channels, width, height) -> (batch * num_mc_samples, channels, width, height)
         x3 = utils.tile(x3, 0, self.num_mc_samples)
         log_pxz = gaussian_likelihood(x2_hat, self.log_scale, x3)
 
@@ -285,7 +286,7 @@ class VAE(pl.LightningModule):
     def setup(self, stage: str):
         gpus = 0 if not isinstance(self.trainer.gpus, int) else self.trainer.gpus
         global_batch_size = gpus * self.batch_size if gpus > 0 else self.batch_size
-        self.train_iters_per_epoch = self.num_samples // global_batch_size
+        self.train_iters_per_epoch = self.num_train_samples // global_batch_size
 
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.learning_rate)
@@ -339,19 +340,13 @@ if __name__ == "__main__":
     # datamodule params
     parser.add_argument('--data_path', type=str, default='.')
     parser.add_argument('--dataset', type=str, default="cifar10")  # cifar10, stl10, imagenet
-    parser.add_argument('--num_samples', type=int, default=1)
+    parser.add_argument('--num_train_samples', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_workers', type=int, default=8)
 
     # transforms param
     parser.add_argument('--input_height', type=int, default=32)
-    parser.add_argument('--gaussian_blur', type=bool, default=True)
-    parser.add_argument('--jitter_strength', type=float, default=1.)
-    parser.add_argument("--flip", action='store_true')
-
-    tf_choices = ["original", "global", "local"]
-    parser.add_argument("--input_transform", default="original", choices=tf_choices)
-    parser.add_argument("--recon_transform", default="original", choices=tf_choices)
+    parser.add_argument('--gaussian_blur', type=int, default=1)
 
     args = parser.parse_args()
 
@@ -363,15 +358,13 @@ if __name__ == "__main__":
             num_workers=args.num_workers
         )
 
-        args.num_samples = dm.num_samples
+        args.num_train_samples = dm.num_samples
         args.input_height = dm.size()[-1]
 
         args.maxpool1 = False
         args.first_conv = False
         normalization = cifar10_normalization()
 
-        args.gaussian_blur = False
-        args.jitter_strength = 0.5
     elif args.dataset == 'stl10':
         dm = STL10DataModule(
             data_dir=args.data_path,
@@ -381,7 +374,7 @@ if __name__ == "__main__":
 
         dm.train_dataloader = dm.train_dataloader_mixed
         dm.val_dataloader = dm.val_dataloader_mixed
-        args.num_samples = dm.num_unlabeled_samples
+        args.num_train_samples = dm.num_unlabeled_samples
         args.input_height = dm.size()[-1]
 
         args.maxpool1 = False
@@ -394,7 +387,7 @@ if __name__ == "__main__":
             num_workers=args.num_workers
         )
 
-        args.num_samples = dm.num_samples
+        args.num_train_samples = dm.num_samples
         args.input_height = dm.size()[-1]
 
         args.maxpool1 = True
@@ -403,14 +396,14 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError("other datasets have not been implemented till now")
 
-    dm.train_transforms = MultiViewTrainTransform(normalization, num_views=3, input_height=args.input_height)
+    dm.train_transforms = MultiViewTrainTransform(normalization, gaussian_blur=args.gaussian_blur, num_views=3, input_height=args.input_height)
     dm.val_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
     dm.test_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
 
     # model init
     model = VAE(
         num_mc_samples=args.num_mc_samples,
-        num_samples=args.num_samples,
+        num_train_samples=args.num_train_samples,
         input_height=args.input_height,
         latent_dim=args.latent_dim,
         lr=args.learning_rate,

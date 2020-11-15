@@ -85,13 +85,13 @@ class Transforms:
 
 
 class MultiViewTrainTransform:
-    def __init__(self, normalization, num_views: int, input_height: int, s: int = 1):
+    def __init__(self, normalization, gaussian_blur: bool, num_views: int, input_height: int, s: int = 1):
 
         self.s = s
         self.num_views = num_views
         self.input_height = input_height
         color_jitter = T.ColorJitter(0.8 * self.s, 0.8 * self.s, 0.8 * self.s, 0.2 * self.s)
-        data_transforms = T.Compose([
+        transforms = [
             T.RandomResizedCrop(size=self.input_height),
             T.RandomHorizontalFlip(),
             T.RandomApply([color_jitter], p=0.5),
@@ -99,7 +99,10 @@ class MultiViewTrainTransform:
             GaussianBlur(kernel_size=int(0.1 * self.input_height)),
             T.ToTensor(),
             normalization
-        ])
+        ]
+        if not gaussian_blur:
+            transforms.pop(-3)
+        data_transforms = T.Compose(transforms)
         self.train_transform = data_transforms
 
     def __call__(self, sample):
