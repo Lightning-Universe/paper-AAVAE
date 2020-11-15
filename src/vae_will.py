@@ -383,7 +383,7 @@ if __name__ == "__main__":
         args.first_conv = True
         normalization = stl10_normalization()
 
-        def to_device(self, batch, device):
+        def to_device(batch, device):
             unlabeled, labeled = batch
             (_, _, x), y = labeled
             x = x.to(device)
