@@ -7,6 +7,7 @@ from torchvision.datasets import CIFAR10
 import torchvision.transforms as T
 import numpy as np
 from torch.optim import Adam
+from src import utils
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
@@ -112,12 +113,14 @@ class VAE(pl.LightningModule):
         warmup_epochs=10,
         warmup_start_lr=0.,
         eta_min=1e-6,
+        num_mc_samples=7,
         **kwargs
     ):
         super(VAE, self).__init__()
 
         self.input_height = input_height
         self.kl_coeff = kl_coeff
+        self.num_mc_samples = num_mc_samples
         self.prior = prior
         self.posterior = posterior
         self.unlabeled_batch = False
@@ -163,24 +166,34 @@ class VAE(pl.LightningModule):
         p, q, z = self.sample(mu, logvar)
         return z, self.decoder(z), p, q
 
-    def sample(self, mu, logvar):
-        std = torch.exp(logvar / 2)
+    def sample(self, z_mu, z_var):
+        num_samples = self.num_mc_samples
 
-        p = distributions[self.prior](torch.zeros_like(mu), torch.ones_like(std))
-        q = distributions[self.posterior](mu, std)
+        # expand dims to sample all at once
+        # (batch, z_dim) -> (batch, num_samples, z_dim)
+        z_mu = z_mu.unsqueeze(1)
+        z_mu = utils.tile(z_mu, 1, num_samples)
+
+        # (batch, z_dim) -> (batch, num_samples, z_dim)
+        z_var = z_var.unsqueeze(1)
+        z_var = utils.tile(z_var, 1, num_samples)
+
+        std = torch.exp(z_var/2)
+
+        p = distributions[self.prior](torch.zeros_like(z_mu), torch.ones_like(std))
+        q = distributions[self.posterior](z_mu, std)
 
         z = q.rsample()
         return p, q, z
 
-    # TODO: verify kl computation
-    def kl_divergence_mc(self, p, q, num_samples=1):
-        z = p.rsample([num_samples])
+    def kl_divergence_mc(self, p, q):
+        z = p.rsample()
 
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
         # mean over num_samples, sum over z_dim
-        return (log_pz - log_qz).mean(dim=0).sum(dim=(1))
+        return (log_pz - log_qz).sum(dim=2)
 
     def step(self, batch, batch_idx):
         if self.unlabeled_batch:
@@ -200,6 +213,9 @@ class VAE(pl.LightningModule):
         log_pz = x1_P.log_prob(x1_z)
         kl = self.kl_coeff * self.kl_divergence_mc(x1_P, x1_Q)
 
+        # (batch, num_mc_samples) -> (batch * num_mc_samples)
+        kl = kl.view(-1)
+
         # --------------------------
         # use x2 for reconstruction
         # --------------------------
@@ -208,11 +224,17 @@ class VAE(pl.LightningModule):
             x2_mu, x2_logvar = self.projection(x2)
             x2_P, x2_Q, x2_z = self.sample(x2_mu, x2_logvar)
 
+        # since we use MC sampling, the latent will have (b, num_mc_samples, hidden_dim)
+        # convert (b, num_mc_samples, hidden_dim) -> (b * num_mc_samples, hidden_dim)
+        x2_z = x2_z.view(-1, x2_z.size(-1))
         x2_hat = self.decoder(x2_z)
 
         # --------------------------
         # use x2_hat and x3 for log likelihood
         # --------------------------
+        # since we use MC sampling, x3 also needs to be duplicated across num samples
+        # (batch, channels, width, height) -> (batch * num_samples, channels, width, height)
+        x3 = utils.tile(x3, 0, self.num_mc_samples)
         log_pxz = gaussian_likelihood(x2_hat, self.log_scale, x3)
 
         elbo = (kl - log_pxz).mean()
@@ -225,8 +247,8 @@ class VAE(pl.LightningModule):
         # TODO: this should be epoch metric
         #kurt = kurtosis_score(z)
 
-        n = torch.tensor(x1.size(0)).type_as(x1)
-        marg_log_px = torch.logsumexp(log_pxz + log_pz.sum(dim=-1) - log_qz.sum(dim=-1), dim=0) - torch.log(n)
+        # n = torch.tensor(x1.size(0)).type_as(x1)
+        # marg_log_px = torch.logsumexp(log_pxz + log_pz.sum(dim=-1) - log_qz.sum(dim=-1), dim=0) - torch.log(n)
 
         logs = {
             "kl": kl.mean(),
@@ -235,7 +257,7 @@ class VAE(pl.LightningModule):
             #"kurtosis": kurt,
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
-            "marginal_log_px": marg_log_px.mean(),
+            # "marginal_log_px": marg_log_px.mean(),
         }
 
         return elbo, logs
