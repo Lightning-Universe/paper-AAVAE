@@ -19,15 +19,15 @@ from pl_bolts.transforms.dataset_normalizations import (
     imagenet_normalization
 )
 
-from resnet import (
+from vae.resnet import (
     resnet18_encoder,
     resnet18_decoder,
     resnet50_encoder,
     resnet50_decoder,
 )
-from online_eval import SSLOnlineEvaluator
-from metrics import gini_score, KurtosisScore
-from transforms import Transforms
+from vae.online_eval import SSLOnlineEvaluator
+from vae.metrics import gini_score, KurtosisScore
+from vae.transforms import Transforms
 
 distributions = {
     "laplace": torch.distributions.Laplace,
