@@ -115,6 +115,7 @@ class VAE(pl.LightningModule):
         warmup_start_lr=0.,
         eta_min=1e-6,
         num_mc_samples=7,
+        unlabeled_batch=False,
         **kwargs
     ):
         super(VAE, self).__init__()
@@ -125,7 +126,7 @@ class VAE(pl.LightningModule):
         self.num_mc_samples = num_mc_samples
         self.prior = prior
         self.posterior = posterior
-        self.unlabeled_batch = False
+        self.unlabeled_batch = unlabeled_batch
 
         self.h_dim = h_dim
         self.latent_dim = latent_dim
