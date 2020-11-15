@@ -1,6 +1,6 @@
 import torch
 from scipy.stats import kurtosis
-
+from pytorch_lightning.metrics import Metric
 
 def gini_score(x):
     """
@@ -8,6 +8,10 @@ def gini_score(x):
     The closer to zero the score is, the LESS sparse the vector is
     ie: 0 ---> 1   less sparse ------> more sparse
     """
+    # collapse when using MC sampling
+    if len(x.size()) == 3:
+        x = x.view(-1, x.size(-1))
+
     # sort first + abs value
     x, _ = torch.sort(torch.abs(x), dim=1)
 
