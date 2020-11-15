@@ -332,6 +332,7 @@ if __name__ == "__main__":
     # optimizer param
     parser.add_argument('--learning_rate', type=float, default=1e-3)  # try both 1e-3/1e-4
     parser.add_argument('--warmup_epochs', type=int, default=10)
+    parser.add_argument('--num_mc_samples', type=int, default=1)
     parser.add_argument('--warmup_start_lr', type=float, default=0.)
     parser.add_argument('--eta_min', type=float, default=1e-6)
 
@@ -407,8 +408,8 @@ if __name__ == "__main__":
     dm.test_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
 
     # model init
-    model = VAE(**args.__dict__)
     model = VAE(
+        num_mc_samples=args.num_mc_samples,
         num_samples=args.num_samples,
         input_height=args.input_height,
         latent_dim=args.latent_dim,
