@@ -103,7 +103,7 @@ class SSLOnlineEvaluator(pl.Callback):
 
     def on_validation_epoch_end(self, trainer, pl_module):
         metrics = {"val_mlp_loss": sum(self.loss) / len(self.loss), "val_mlp_acc": sum(self.acc) / len(self.acc)}
-        pl_module.logger.log_metrics(metrics, step=trainer.current_epoch)
+        pl_module.log_dict(metrics, prog_bar=True)
 
         # reset
         self.loss = []
