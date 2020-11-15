@@ -394,7 +394,12 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError("other datasets have not been implemented till now")
 
-    dm.train_transforms = MultiViewTrainTransform(normalization, gaussian_blur=args.gaussian_blur, num_views=3, input_height=args.input_height)
+    dm.train_transforms = MultiViewTrainTransform(
+        normalization,
+        gaussian_blur=args.gaussian_blur,
+        num_views=3,
+        input_height=args.input_height
+    )
     dm.val_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
     dm.test_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
 
