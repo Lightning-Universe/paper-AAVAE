@@ -10,6 +10,7 @@ from torch.optim import Adam
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
+from src.transforms import MultiViewEvalTransform, MultiViewTrainTransform
 
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
 from pl_bolts.datamodules import CIFAR10DataModule, STL10DataModule, ImagenetDataModule
@@ -185,22 +186,41 @@ class VAE(pl.LightningModule):
         if self.unlabeled_batch:
             batch = batch[0]
 
-        (x1, x2, _), y = batch
+        (x1, x2, x3), y = batch
 
-        z, x1_hat, p, q = self.forward(x1)
+        # --------------------------
+        # use x1 for KL divergence
+        # --------------------------
+        x1 = self.encoder(x1)
+        x1_mu, x1_logvar = self.projection(x1)
+        x1_P, x1_Q, x1_z = self.sample(x1_mu, x1_logvar)
 
-        log_pxz = discretized_logistic(x1_hat, self.log_scale, x2)
-        log_qz = q.log_prob(z)
-        log_pz = p.log_prob(z)
+        # kl
+        log_qz = x1_Q.log_prob(x1_z)
+        log_pz = x1_P.log_prob(x1_z)
+        kl = self.kl_coeff * self.kl_divergence_mc(x1_P, x1_Q)
 
-        kl = self.kl_coeff * self.kl_divergence_mc(p, q)
+        # --------------------------
+        # use x2 for reconstruction
+        # --------------------------
+        with torch.no_grad():
+            x2 = self.encoder(x2)
+            x2_mu, x2_logvar = self.projection(x2)
+            x2_P, x2_Q, x2_z = self.sample(x2_mu, x2_logvar)
+
+        x2_hat = self.decoder(x2_z)
+
+        # --------------------------
+        # use x2_hat and x3 for log likelihood
+        # --------------------------
+        log_pxz = gaussian_likelihood(x2_hat, self.log_scale, x3)
 
         elbo = (kl - log_pxz).mean()
         bpd = elbo / (
             self.input_height * self.input_height * self.in_channels * np.log(2.0)
         )
 
-        gini = gini_score(z)
+        gini = gini_score(x1_z)
 
         # TODO: this should be epoch metric
         #kurt = kurtosis_score(z)
@@ -360,20 +380,9 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError("other datasets have not been implemented till now")
 
-    dm.train_transforms = Transforms(
-        size=args.input_height,
-        input_transform=args.input_transform,
-        recon_transform=args.recon_transform,
-        normalize_fn=lambda x: x - 0.5,
-        flip=args.flip,
-        jitter_strength=args.jitter_strength,
-    )
-    dm.test_transforms = Transforms(
-        size=args.input_height, normalize_fn=lambda x: x - 0.5
-    )
-    dm.val_transforms = Transforms(
-        size=args.input_height, normalize_fn=lambda x: x - 0.5
-    )
+    dm.train_transforms = MultiViewTrainTransform(normalization, num_views=3, input_height=args.input_height)
+    dm.val_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
+    dm.test_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
 
     # model init
     model = VAE(**args.__dict__)

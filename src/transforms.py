@@ -85,19 +85,21 @@ class Transforms:
 
 
 class MultiViewTrainTransform:
-    def __init__(self, num_views: int, input_height: int, s: int = 1):
+    def __init__(self, normalization, num_views: int, input_height: int, s: int = 1):
 
         self.s = s
         self.num_views = num_views
         self.input_height = input_height
         color_jitter = T.ColorJitter(0.8 * self.s, 0.8 * self.s, 0.8 * self.s, 0.2 * self.s)
-        data_transforms = T.Compose(
-            [T.RandomResizedCrop(size=self.input_height),
-             T.RandomHorizontalFlip(),
-             T.RandomApply([color_jitter], p=0.5),
-             T.RandomGrayscale(p=0.2),
-             GaussianBlur(kernel_size=int(0.1 * self.input_height)),
-             T.ToTensor()])
+        data_transforms = T.Compose([
+            T.RandomResizedCrop(size=self.input_height),
+            T.RandomHorizontalFlip(),
+            T.RandomApply([color_jitter], p=0.5),
+            T.RandomGrayscale(p=0.2),
+            GaussianBlur(kernel_size=int(0.1 * self.input_height)),
+            T.ToTensor(),
+            normalization
+        ])
         self.train_transform = data_transforms
 
     def __call__(self, sample):
@@ -107,7 +109,7 @@ class MultiViewTrainTransform:
 
 
 class MultiViewEvalTransform:
-    def __init__(self, num_views: int, input_height: int, s: int = 1):
+    def __init__(self, normalization, num_views: int, input_height: int, s: int = 1):
 
         self.s = s
         self.num_views = num_views
@@ -116,6 +118,7 @@ class MultiViewEvalTransform:
             T.Resize(input_height + 10, interpolation=3),
             T.CenterCrop(input_height),
             T.ToTensor(),
+            normalization
         ])
 
     def __call__(self, sample):
