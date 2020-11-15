@@ -237,8 +237,15 @@ class VAE(pl.LightningModule):
         # (batch, channels, width, height) -> (batch * num_mc_samples, channels, width, height)
         x3 = utils.tile(x3, 0, self.num_mc_samples)
         log_pxz = gaussian_likelihood(x2_hat, self.log_scale, x3)
-
+        
+        # --------------------------
+        # ELBO
+        # --------------------------
         elbo = (kl - log_pxz).mean()
+        
+        # --------------------------
+        # ADDITIONAL METRICS
+        # --------------------------
         bpd = elbo / (
             self.input_height * self.input_height * self.in_channels * np.log(2.0)
         )
