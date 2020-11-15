@@ -193,7 +193,8 @@ class VAE(pl.LightningModule):
 
     def step(self, batch, batch_idx):
         if self.unlabeled_batch:
-            batch = batch[0]
+            unlabeled, labeled = batch
+            batch = unlabeled
 
         (x1, x2, x3), y = batch
 
@@ -379,6 +380,7 @@ if __name__ == "__main__":
         args.maxpool1 = False
         args.first_conv = True
         normalization = stl10_normalization()
+
     elif args.dataset == 'imagenet':
         dm = ImagenetDataModule(
             data_dir=args.data_path,
