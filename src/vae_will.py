@@ -352,6 +352,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dm = None
+    to_device = None
     if args.dataset == 'cifar10':
         dm = CIFAR10DataModule(
             data_dir=args.data_path,
@@ -382,6 +383,13 @@ if __name__ == "__main__":
         args.first_conv = True
         normalization = stl10_normalization()
 
+        def to_device(self, batch, device):
+            unlabeled, labeled = batch
+            (_, _, x), y = labeled
+            x = x.to(device)
+            y = y.to(device)
+
+            return x, y
     elif args.dataset == 'imagenet':
         dm = ImagenetDataModule(
             data_dir=args.data_path,
@@ -432,6 +440,8 @@ if __name__ == "__main__":
         drop_p=0.0,
         hidden_dim=None,
     )
+    if to_device:
+        online_evaluator.to_device = to_device
 
     trainer = pl.Trainer.from_argparse_args(args, callbacks=[online_evaluator, interpolator])
 
