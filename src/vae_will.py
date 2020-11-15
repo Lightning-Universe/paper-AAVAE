@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 import torchvision.transforms as T
+from pl_bolts.callbacks import LatentDimInterpolator
 import numpy as np
 from torch.optim import Adam
 from src import utils
@@ -161,11 +162,7 @@ class VAE(pl.LightningModule):
         #self.val_kurtosis = KurtosisScore()
 
     def forward(self, x):
-        x = self.encoder(x)
-        mu, logvar = self.projection(x)
-
-        p, q, z = self.sample(mu, logvar)
-        return z, self.decoder(z), p, q
+        return self.decoder(x)
 
     def sample(self, z_mu, z_var):
         num_train_samples = self.num_mc_samples
@@ -419,6 +416,7 @@ if __name__ == "__main__":
         max_epochs=args.max_epochs,
     )
 
+    interpolator = LatentDimInterpolator(interpolate_epoch_interval=10)
     online_evaluator = SSLOnlineEvaluator(
         z_dim=model.encoder.out_dim,
         num_classes=dm.num_classes,
@@ -426,6 +424,6 @@ if __name__ == "__main__":
         hidden_dim=None,
     )
 
-    trainer = pl.Trainer.from_argparse_args(args, callbacks=[online_evaluator])
+    trainer = pl.Trainer.from_argparse_args(args, callbacks=[online_evaluator, interpolator])
 
     trainer.fit(model, dm)
