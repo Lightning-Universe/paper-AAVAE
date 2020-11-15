@@ -95,7 +95,6 @@ class VAE(pl.LightningModule):
         self,
         input_height,
         num_samples,
-        gpus=1,
         batch_size=32,
         kl_coeff=0.1,
         h_dim=2048,
@@ -135,12 +134,8 @@ class VAE(pl.LightningModule):
         self.warmup_start_lr = warmup_start_lr
         self.eta_min = eta_min
 
-        self.gpus = gpus
         self.batch_size = batch_size
         self.num_samples = num_samples
-
-        global_batch_size = self.gpus * self.batch_size if self.gpus > 0 else self.batch_size
-        self.train_iters_per_epoch = self.num_samples // global_batch_size
 
         self.in_channels = 3
 
@@ -245,6 +240,11 @@ class VAE(pl.LightningModule):
 
         return loss
 
+    def setup(self, stage: str):
+        gpus = 0 if not isinstance(self.trainer.gpus, int) else self.trainer.gpus
+        global_batch_size = gpus * self.batch_size if gpus > 0 else self.batch_size
+        self.train_iters_per_epoch = self.num_samples // global_batch_size
+
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.learning_rate)
 
@@ -272,6 +272,7 @@ class VAE(pl.LightningModule):
 if __name__ == "__main__":
     pl.seed_everything(0)
     parser = argparse.ArgumentParser()
+    parser = pl.Trainer.add_argparse_args(parser)
 
     # encoder/decoder params
     parser.add_argument("--encoder", default="resnet50", choices=encoders.keys())
@@ -289,13 +290,8 @@ if __name__ == "__main__":
     # optimizer param
     parser.add_argument('--learning_rate', type=float, default=1e-3)  # try both 1e-3/1e-4
     parser.add_argument('--warmup_epochs', type=int, default=10)
-    parser.add_argument('--max_epochs', type=int, default=200)
     parser.add_argument('--warmup_start_lr', type=float, default=0.)
     parser.add_argument('--eta_min', type=float, default=1e-6)
-
-    # training params
-    parser.add_argument('--gpus', type=int, default=0)
-    parser.add_argument("--fp16", action='store_true')
 
     # datamodule params
     parser.add_argument('--data_path', type=str, default='.')
@@ -404,12 +400,6 @@ if __name__ == "__main__":
         hidden_dim=None,
     )
 
-    trainer = pl.Trainer(
-        max_epochs=args.max_epochs,
-        gpus=args.gpus,
-        distributed_backend='ddp' if args.gpus > 1 else None,
-        precision=16 if args.fp16 else 32,
-        callbacks=[online_evaluator],
-    )
+    trainer = pl.Trainer.from_argparse_args(args, callbacks=[online_evaluator])
 
     trainer.fit(model, dm)
