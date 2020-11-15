@@ -222,7 +222,7 @@ class VAE(pl.LightningModule):
         # since we use MC sampling, the latent will have (b, num_mc_samples, hidden_dim)
         # convert (b, num_mc_samples, hidden_dim) -> (b * num_mc_samples, hidden_dim)
         x2_z = x2_z.view(-1, x2_z.size(-1))
-        x2_hat = self.decoder(x1_z)
+        x2_hat = self.decoder(x2_z)
 
         # --------------------------
         # use x2_hat and x3 for log likelihood
