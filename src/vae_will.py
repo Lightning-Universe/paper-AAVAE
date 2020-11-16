@@ -208,7 +208,6 @@ class VAE(pl.LightningModule):
 
         # kl
         kl = self.kl_coeff * self.kl_divergence_mc(x1_P, x1_Q, x1_z)
-        kl = -kl
 
         # (batch, num_mc_samples) -> (batch * num_mc_samples)
         kl = kl.view(-1)
@@ -237,7 +236,7 @@ class VAE(pl.LightningModule):
         # --------------------------
         # ELBO
         # --------------------------
-        elbo = (kl - log_pxz).mean()
+        elbo = (-kl + log_pxz).mean()
         
         # --------------------------
         # ADDITIONAL METRICS
@@ -268,7 +267,7 @@ class VAE(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
-        self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False)
+        self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False, prog_bar=True)
 
         # takes z sampled from latent
         #self.train_kurtosis.update(z)
