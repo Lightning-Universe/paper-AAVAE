@@ -190,7 +190,7 @@ class VAE(pl.LightningModule):
         log_qz = q.log_prob(z)
 
         # mean over num_train_samples, sum over z_dim
-        return (log_pz - log_qz).mean(1).sum(dim=-1)
+        return -(log_pz - log_qz).sum(-1).mean(-1)
 
     def step(self, batch, batch_idx):
         if self.unlabeled_batch:
@@ -208,7 +208,6 @@ class VAE(pl.LightningModule):
 
         # kl
         kl = self.kl_coeff * self.kl_divergence_mc(x1_P, x1_Q, x1_z)
-        kl = -kl
 
         # (batch, num_mc_samples) -> (batch * num_mc_samples)
         kl = kl.view(-1)
@@ -417,6 +416,7 @@ if __name__ == "__main__":
 
     # model init
     model = VAE(
+        batch_size=args.batch_size,
         num_mc_samples=args.num_mc_samples,
         num_train_samples=args.num_train_samples,
         input_height=args.input_height,

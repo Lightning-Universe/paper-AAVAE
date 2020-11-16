@@ -2,7 +2,7 @@ data
 lightning_logs
 .idea/
 *cifar-10*
-
+*stl10_*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
