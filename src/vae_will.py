@@ -114,7 +114,7 @@ class VAE(pl.LightningModule):
         warmup_epochs=10,
         warmup_start_lr=0.,
         eta_min=1e-6,
-        num_mc_samples=7,
+        num_mc_samples=8,
         unlabeled_batch=False,
         **kwargs
     ):
@@ -338,7 +338,7 @@ if __name__ == "__main__":
     # optimizer param
     parser.add_argument('--learning_rate', type=float, default=1e-3)  # try both 1e-3/1e-4
     parser.add_argument('--warmup_epochs', type=int, default=10)
-    parser.add_argument('--num_mc_samples', type=int, default=1000)
+    parser.add_argument('--num_mc_samples', type=int, default=8)
     parser.add_argument('--warmup_start_lr', type=float, default=0.)
     parser.add_argument('--eta_min', type=float, default=1e-6)
 
