@@ -333,7 +333,7 @@ if __name__ == "__main__":
     # optimizer param
     parser.add_argument('--learning_rate', type=float, default=1e-3)  # try both 1e-3/1e-4
     parser.add_argument('--warmup_epochs', type=int, default=10)
-    parser.add_argument('--num_mc_samples', type=int, default=1)
+    parser.add_argument('--num_mc_samples', type=int, default=1000)
     parser.add_argument('--warmup_start_lr', type=float, default=0.)
     parser.add_argument('--eta_min', type=float, default=1e-6)
 
