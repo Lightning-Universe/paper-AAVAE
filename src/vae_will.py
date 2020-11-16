@@ -190,7 +190,7 @@ class VAE(pl.LightningModule):
         log_qz = q.log_prob(z)
 
         # mean over num_train_samples, sum over z_dim
-        return (log_pz - log_qz).sum(dim=2)
+        return (log_pz - log_qz).mean(1).sum(dim=-1)
 
     def step(self, batch, batch_idx):
         if self.unlabeled_batch:
