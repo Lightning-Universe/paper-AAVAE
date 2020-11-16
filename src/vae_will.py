@@ -346,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument('--data_path', type=str, default='.')
     parser.add_argument('--dataset', type=str, default="cifar10")  # cifar10, stl10, imagenet
     parser.add_argument('--num_train_samples', type=int, default=1)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--num_workers', type=int, default=8)
 
     # transforms param
