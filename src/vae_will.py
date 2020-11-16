@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 import torchvision.transforms as T
+from pl_bolts.callbacks import LatentDimInterpolator
 import numpy as np
 from torch.optim import Adam
 from src import utils
@@ -113,7 +114,8 @@ class VAE(pl.LightningModule):
         warmup_epochs=10,
         warmup_start_lr=0.,
         eta_min=1e-6,
-        num_mc_samples=7,
+        num_mc_samples=8,
+        unlabeled_batch=False,
         **kwargs
     ):
         super(VAE, self).__init__()
@@ -124,7 +126,7 @@ class VAE(pl.LightningModule):
         self.num_mc_samples = num_mc_samples
         self.prior = prior
         self.posterior = posterior
-        self.unlabeled_batch = False
+        self.unlabeled_batch = unlabeled_batch
 
         self.h_dim = h_dim
         self.latent_dim = latent_dim
@@ -161,11 +163,7 @@ class VAE(pl.LightningModule):
         #self.val_kurtosis = KurtosisScore()
 
     def forward(self, x):
-        x = self.encoder(x)
-        mu, logvar = self.projection(x)
-
-        p, q, z = self.sample(mu, logvar)
-        return z, self.decoder(z), p, q
+        return self.decoder(x)
 
     def sample(self, z_mu, z_var):
         num_train_samples = self.num_mc_samples
@@ -187,18 +185,17 @@ class VAE(pl.LightningModule):
         z = q.rsample()
         return p, q, z
 
-    def kl_divergence_mc(self, p, q):
-        z = p.rsample()
-
+    def kl_divergence_mc(self, p, q, z):
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
         # mean over num_train_samples, sum over z_dim
-        return (log_pz - log_qz).sum(dim=2)
+        return -(log_pz - log_qz).sum(-1).mean(-1)
 
     def step(self, batch, batch_idx):
         if self.unlabeled_batch:
-            batch = batch[0]
+            unlabeled, labeled = batch
+            batch = unlabeled
 
         (x1, x2, x3), y = batch
 
@@ -210,9 +207,7 @@ class VAE(pl.LightningModule):
         x1_P, x1_Q, x1_z = self.sample(x1_mu, x1_logvar)
 
         # kl
-        log_qz = x1_Q.log_prob(x1_z)
-        log_pz = x1_P.log_prob(x1_z)
-        kl = self.kl_coeff * self.kl_divergence_mc(x1_P, x1_Q)
+        kl = self.kl_coeff * self.kl_divergence_mc(x1_P, x1_Q, x1_z)
 
         # (batch, num_mc_samples) -> (batch * num_mc_samples)
         kl = kl.view(-1)
@@ -238,7 +233,19 @@ class VAE(pl.LightningModule):
         x3 = utils.tile(x3, 0, self.num_mc_samples)
         log_pxz = gaussian_likelihood(x2_hat, self.log_scale, x3)
 
+        # average across mc estimates
+        b = x2_z.size(0) // self.num_mc_samples
+        log_pxz = log_pxz.view(b, self.num_mc_samples)
+        log_pxz = log_pxz.mean(1)
+
+        # --------------------------
+        # ELBO
+        # --------------------------
         elbo = (kl - log_pxz).mean()
+        
+        # --------------------------
+        # ADDITIONAL METRICS
+        # --------------------------
         bpd = elbo / (
             self.input_height * self.input_height * self.in_channels * np.log(2.0)
         )
@@ -265,7 +272,7 @@ class VAE(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
-        self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False)
+        self.log_dict({f"train_{k}": v for k, v in logs.items()}, on_step=True, on_epoch=False, prog_bar=True)
 
         # takes z sampled from latent
         #self.train_kurtosis.update(z)
@@ -280,8 +287,6 @@ class VAE(pl.LightningModule):
         # takes z sampled from latent
         #self.val_kurtosis.update(z)
         #self.log("val_kurtosis_score", self.val_kurtosis, on_step=False, on_epoch=True)
-
-        return loss
 
     def setup(self, stage: str):
         gpus = 0 if not isinstance(self.trainer.gpus, int) else self.trainer.gpus
@@ -333,7 +338,7 @@ if __name__ == "__main__":
     # optimizer param
     parser.add_argument('--learning_rate', type=float, default=1e-3)  # try both 1e-3/1e-4
     parser.add_argument('--warmup_epochs', type=int, default=10)
-    parser.add_argument('--num_mc_samples', type=int, default=1)
+    parser.add_argument('--num_mc_samples', type=int, default=8)
     parser.add_argument('--warmup_start_lr', type=float, default=0.)
     parser.add_argument('--eta_min', type=float, default=1e-6)
 
@@ -341,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument('--data_path', type=str, default='.')
     parser.add_argument('--dataset', type=str, default="cifar10")  # cifar10, stl10, imagenet
     parser.add_argument('--num_train_samples', type=int, default=1)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--num_workers', type=int, default=8)
 
     # transforms param
@@ -351,6 +356,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dm = None
+    to_device = None
     if args.dataset == 'cifar10':
         dm = CIFAR10DataModule(
             data_dir=args.data_path,
@@ -380,6 +386,14 @@ if __name__ == "__main__":
         args.maxpool1 = False
         args.first_conv = True
         normalization = stl10_normalization()
+
+        def to_device(batch, device):
+            unlabeled, labeled = batch
+            (_, _, x), y = labeled
+            x = x.to(device)
+            y = y.to(device)
+
+            return x, y
     elif args.dataset == 'imagenet':
         dm = ImagenetDataModule(
             data_dir=args.data_path,
@@ -396,12 +410,18 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError("other datasets have not been implemented till now")
 
-    dm.train_transforms = MultiViewTrainTransform(normalization, gaussian_blur=args.gaussian_blur, num_views=3, input_height=args.input_height)
+    dm.train_transforms = MultiViewTrainTransform(
+        normalization,
+        gaussian_blur=args.gaussian_blur,
+        num_views=3,
+        input_height=args.input_height
+    )
     dm.val_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
     dm.test_transforms = MultiViewEvalTransform(normalization, num_views=3, input_height=args.input_height)
 
     # model init
     model = VAE(
+        batch_size=args.batch_size,
         num_mc_samples=args.num_mc_samples,
         num_train_samples=args.num_train_samples,
         input_height=args.input_height,
@@ -418,13 +438,16 @@ if __name__ == "__main__":
         max_epochs=args.max_epochs,
     )
 
+    interpolator = LatentDimInterpolator(interpolate_epoch_interval=10)
     online_evaluator = SSLOnlineEvaluator(
         z_dim=model.encoder.out_dim,
         num_classes=dm.num_classes,
         drop_p=0.0,
         hidden_dim=None,
     )
+    if to_device:
+        online_evaluator.to_device = to_device
 
-    trainer = pl.Trainer.from_argparse_args(args, callbacks=[online_evaluator])
+    trainer = pl.Trainer.from_argparse_args(args, callbacks=[online_evaluator, interpolator])
 
     trainer.fit(model, dm)
