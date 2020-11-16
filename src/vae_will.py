@@ -236,7 +236,7 @@ class VAE(pl.LightningModule):
         # --------------------------
         # ELBO
         # --------------------------
-        elbo = (-kl + log_pxz).mean()
+        elbo = (kl + log_pxz).mean()
         
         # --------------------------
         # ADDITIONAL METRICS
