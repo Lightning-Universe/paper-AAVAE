@@ -232,7 +232,12 @@ class VAE(pl.LightningModule):
         # (batch, channels, width, height) -> (batch * num_mc_samples, channels, width, height)
         x3 = utils.tile(x3, 0, self.num_mc_samples)
         log_pxz = gaussian_likelihood(x2_hat, self.log_scale, x3)
-        
+
+        # average across mc estimates
+        b = x2_z.size(0) // self.num_mc_samples
+        log_pxz = log_pxz.view(b, self.num_mc_samples)
+        log_pxz = log_pxz.mean(1)
+
         # --------------------------
         # ELBO
         # --------------------------
