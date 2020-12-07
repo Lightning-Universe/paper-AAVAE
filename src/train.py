@@ -20,16 +20,15 @@ from pl_bolts.transforms.dataset_normalizations import (
     imagenet_normalization,
 )
 
-from src.resnet import (
+from resnet import (
     resnet18_encoder,
     resnet18_decoder,
     resnet50_encoder,
     resnet50_decoder,
 )
 
-from src.final_teddy.transforms import LocalTransform, OriginalTransform
-from src.online_eval import SSLOnlineEvaluator
-from src import utils
+from transforms import LocalTransform, OriginalTransform
+from online_eval import SSLOnlineEvaluator
 
 encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
 decoders = {"resnet18": resnet18_decoder, "resnet50": resnet50_decoder}
