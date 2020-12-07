@@ -330,7 +330,6 @@ if __name__ == "__main__":
     if args.encoder == 'resnet18':
         args.h_dim = 512
 
-    dm = None
     if args.dataset == 'cifar10':
         dm = CIFAR10DataModule(
             data_dir=args.data_path,
