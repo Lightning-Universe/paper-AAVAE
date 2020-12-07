@@ -1,2 +1,3 @@
 # VAE
 
+## Train CIFAR
