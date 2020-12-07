@@ -54,6 +54,9 @@ def gaussian_likelihood(mean, logscale, sample):
 
 
 class TrainTransform:
+    """
+    TrainTransform returns a transformed image along with the original
+    """
     def __init__(
         self,
         input_height: int = 224,
@@ -76,6 +79,9 @@ class TrainTransform:
 
 
 class EvalTransform(TrainTransform):
+    """
+    EvalTransform returns the orginial image twice
+    """
     def __init__(self, input_height: int = 224, normalize=None) -> None:
         self.original_transform = OriginalTransform(
             input_height=input_height, normalize=normalize
