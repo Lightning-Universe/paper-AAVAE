@@ -7,6 +7,7 @@ from torchvision.datasets import CIFAR10
 import torchvision.transforms as T
 import numpy as np
 from torch.optim import Adam
+from einops import repeat
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
@@ -123,6 +124,7 @@ class VAE(pl.LightningModule):
         warmup_start_lr=0.0,
         eta_min=1e-6,
         analytic=False,
+        val_samples=1,
         **kwargs,
     ):
         super(VAE, self).__init__()
@@ -148,6 +150,7 @@ class VAE(pl.LightningModule):
         self.gpus = gpus
         self.batch_size = batch_size
         self.num_samples = num_samples
+        self.val_samples = val_samples
 
         global_batch_size = (
             self.gpus * self.batch_size if self.gpus > 0 else self.batch_size
@@ -182,9 +185,6 @@ class VAE(pl.LightningModule):
 
     @staticmethod
     def kl_divergence_mc(p, q, z):
-        """
-        z is (batch, num_samples, dim)
-        """
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
@@ -199,18 +199,21 @@ class VAE(pl.LightningModule):
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
-        # kl, log_pz, log_qz should be (batch * num_samples)
+        # kl, log_pz, log_qz should be (batch * samples)
         kl = torch.distributions.kl.kl_divergence(q, p).sum(dim=-1).flatten()
         log_pz = p.log_prob(z).sum(dim=-1).flatten()
         log_qz = q.log_prob(z).sum(dim=-1).flatten()
         return kl, log_pz, log_qz
 
-    def step(self, batch, batch_idx):
+    def step(self, batch, samples=1):
         if self.dataset == 'stl10':
             unlabeled_batch = batch[0]
             batch = unlabeled_batch
 
         (x, original), y = batch
+
+        x = repeat(x, "b c h w -> (b samples) c h w", samples=samples)
+        original = repeat(original, "b c h w -> (b samples) c h w", samples=samples)
 
         batch_size, c, h, w = x.shape
         pixels = c * h * w
@@ -231,8 +234,10 @@ class VAE(pl.LightningModule):
         elbo = (kl - log_pxz).mean()
         loss = (self.kl_coeff * kl - log_pxz).mean()
 
-        # marginal likelihood (batch)  elements here
-        log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - np.log(batch_size)
+        # marginal likelihood (batch * samples) elements here
+        log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=0) - np.log(
+            batch_size * samples
+        )
         bpd = -log_px / (pixels * np.log(2))  # need log_px in base 2
 
         logs = {
@@ -247,12 +252,12 @@ class VAE(pl.LightningModule):
         return loss, logs, z
 
     def training_step(self, batch, batch_idx):
-        loss, logs, z = self.step(batch, batch_idx)
+        loss, logs, z = self.step(batch)
         self.log_dict({f"train_{k}": v for k, v in logs.items()})
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, logs, z = self.step(batch, batch_idx)
+        loss, logs, z = self.step(batch, self.val_samples)
         self.log_dict({f"val_{k}": v for k, v in logs.items()})
         return loss
 
@@ -297,6 +302,9 @@ if __name__ == "__main__":
     parser.add_argument('--latent_dim', type=int, default=128)
     # use analytic KL
     parser.add_argument('--analytic', type=int, default=0)
+
+    # number of samples to use for validation
+    parser.add_argument('--val_samples', type=int, default=1)
 
     # optimizer param
     parser.add_argument('--learning_rate', type=float, default=1e-3)
