@@ -188,9 +188,9 @@ class VAE(pl.LightningModule):
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
-        kl = (log_qz - log_pz).sum(dim=-1).flatten()
-        log_pz = log_pz.sum(dim=-1).flatten()
-        log_qz = log_qz.sum(dim=-1).flatten()
+        kl = (log_qz - log_pz).sum(dim=-1)
+        log_pz = log_pz.sum(dim=-1)
+        log_qz = log_qz.sum(dim=-1)
 
         return kl, log_pz, log_qz
 
@@ -200,9 +200,9 @@ class VAE(pl.LightningModule):
         log_qz = q.log_prob(z)
 
         # kl, log_pz, log_qz should be (batch * samples)
-        kl = torch.distributions.kl.kl_divergence(q, p).sum(dim=-1).flatten()
-        log_pz = p.log_prob(z).sum(dim=-1).flatten()
-        log_qz = q.log_prob(z).sum(dim=-1).flatten()
+        kl = torch.distributions.kl.kl_divergence(q, p).sum(dim=-1)
+        log_pz = p.log_prob(z).sum(dim=-1)
+        log_qz = q.log_prob(z).sum(dim=-1)
         return kl, log_pz, log_qz
 
     def step(self, batch, samples=1):
