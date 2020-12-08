@@ -47,6 +47,7 @@ class TrainTransform:
     """
     TrainTransform returns a transformed image along with the original
     """
+
     def __init__(
         self,
         input_height: int = 224,
@@ -72,6 +73,7 @@ class EvalTransform:
     """
     EvalTransform returns the orginial image twice
     """
+
     def __init__(self, input_height: int = 224, normalize=None) -> None:
         self.original_transform = OriginalTransform(
             input_height=input_height, normalize=normalize
@@ -394,7 +396,9 @@ if __name__ == "__main__":
         dataset=args.dataset,
     )
 
-    interpolator = LatentDimInterpolator(interpolate_epoch_interval=10)
+    interpolator = LatentDimInterpolator(
+        interpolate_epoch_interval=20, range_start=-3, range_end=3, normalize=True
+    )
 
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
