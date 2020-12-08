@@ -78,7 +78,7 @@ class TrainTransform:
         return self.input_transform(x), self.original_transform(x)
 
 
-class EvalTransform(TrainTransform):
+class EvalTransform:
     """
     EvalTransform returns the orginial image twice
     """
