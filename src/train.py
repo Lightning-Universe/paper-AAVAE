@@ -34,16 +34,6 @@ encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
 decoders = {"resnet18": resnet18_decoder, "resnet50": resnet50_decoder}
 
 
-def discretized_logistic(mean, logscale, sample, binsize=1 / 256):
-    mean = mean.clamp(min=-0.5 + 1 / 512, max=0.5 - 1 / 512)
-    scale = torch.exp(logscale)
-    sample = (torch.floor(sample / binsize) * binsize - mean) / scale
-    log_pxz = torch.log(
-        torch.sigmoid(sample + binsize / scale) - torch.sigmoid(sample) + 1e-7
-    )
-    return log_pxz.sum(dim=(1, 2, 3))
-
-
 def gaussian_likelihood(mean, logscale, sample):
     scale = torch.exp(logscale)
     dist = torch.distributions.Normal(mean, scale)
