@@ -252,7 +252,7 @@ class VAE(pl.LightningModule):
         return loss, logs, z
 
     def training_step(self, batch, batch_idx):
-        loss, logs, z = self.step(batch)
+        loss, logs, z = self.step(batch, 1) # use only one sample for train
         self.log_dict({f"train_{k}": v for k, v in logs.items()})
         return loss
 
