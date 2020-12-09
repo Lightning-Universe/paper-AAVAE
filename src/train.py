@@ -8,6 +8,7 @@ import torchvision.transforms as T
 import numpy as np
 from torch.optim import Adam
 from einops import repeat
+import math
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
@@ -42,6 +43,24 @@ def gaussian_likelihood(mean, logscale, sample):
 
     # sum over dimensions
     return log_pxz.sum(dim=(1, 2, 3))
+
+
+def linear_warmup_cosine_decay(warmup_steps, total_steps, cosine=True):
+    """
+    Linear warmup for warmup_steps, optionally with cosine annealing to 0 at total_steps
+    """
+
+    def fn(step):
+        if step < warmup_steps:
+            return float(step) / float(max(1, warmup_steps))
+        if not cosine:
+            return 1.0
+        progress = float(step - warmup_steps) / float(
+            max(1, total_steps - warmup_steps)
+        )
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+    return fn
 
 
 class TrainTransform:
@@ -125,6 +144,7 @@ class VAE(pl.LightningModule):
         eta_min=1e-6,
         analytic=False,
         val_samples=1,
+        cosine=0,
         **kwargs,
     ):
         super(VAE, self).__init__()
@@ -144,8 +164,7 @@ class VAE(pl.LightningModule):
         self.learning_rate = learning_rate
         self.max_epochs = max_epochs
         self.warmup_epochs = warmup_epochs
-        self.warmup_start_lr = warmup_start_lr
-        self.eta_min = eta_min
+        self.cosine = cosine
 
         self.gpus = gpus
         self.batch_size = batch_size
@@ -252,7 +271,7 @@ class VAE(pl.LightningModule):
         return loss, logs, z
 
     def training_step(self, batch, batch_idx):
-        loss, logs, z = self.step(batch, 1) # use only one sample for train
+        loss, logs, z = self.step(batch, 1)  # use only one sample for train
         self.log_dict({f"train_{k}": v for k, v in logs.items()})
         return loss
 
@@ -264,21 +283,19 @@ class VAE(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.learning_rate)
 
-        # this needs to be per step
-        self.warmup_epochs = self.train_iters_per_epoch * self.warmup_epochs
-        self.max_epochs = self.train_iters_per_epoch * self.max_epochs
+        if self.warmup_epochs < -1:
+            return optimizer
 
-        linear_warmup_cosine_decay = LinearWarmupCosineAnnealingLR(
-            optimizer=optimizer,
-            warmup_epochs=self.warmup_epochs,
-            max_epochs=self.max_epochs,
-            warmup_start_lr=self.warmup_start_lr,
-            eta_min=self.eta_min,
-        )
+        warmup_steps = self.train_iters_per_epoch * self.warmup_epochs
+        total_steps = self.train_iters_per_epoch * self.max_epochs
 
+        # linear warmup with optional cosine decay
         scheduler = {
-            'scheduler': linear_warmup_cosine_decay,
-            'interval': 'step',
+            "scheduler": torch.optim.lr_scheduler.LambdaLR(
+                optimizer,
+                linear_warmup_cosine_decay(warmup_steps, total_steps, self.cosine),
+            ),
+            "interval": "step",
             'frequency': 1,
         }
 
@@ -310,8 +327,7 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float, default=1e-3)
     parser.add_argument('--warmup_epochs', type=int, default=10)
     parser.add_argument('--max_epochs', type=int, default=800)
-    parser.add_argument('--warmup_start_lr', type=float, default=1e-5)
-    parser.add_argument('--eta_min', type=float, default=1e-5)
+    parser.add_argument("--cosine", type=int, default=0)
 
     # training params
     parser.add_argument('--gpus', type=int, default=1)
