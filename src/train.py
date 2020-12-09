@@ -45,20 +45,30 @@ def gaussian_likelihood(mean, logscale, sample):
     return log_pxz.sum(dim=(1, 2, 3))
 
 
-def linear_warmup_cosine_decay(warmup_steps, total_steps, cosine=True):
+def linear_warmup_decay(warmup_steps, total_steps, cosine=True, linear=False):
     """
-    Linear warmup for warmup_steps, optionally with cosine annealing to 0 at total_steps
+    Linear warmup for warmup_steps, optionally with cosine annealing or
+    linear decay to 0 at total_steps
     """
+    assert not (linear and cosine)
 
     def fn(step):
         if step < warmup_steps:
             return float(step) / float(max(1, warmup_steps))
-        if not cosine:
+
+        if not (cosine or linear):
+            # no decay
             return 1.0
+
         progress = float(step - warmup_steps) / float(
             max(1, total_steps - warmup_steps)
         )
-        return 0.5 * (1.0 + math.cos(math.pi * progress))
+        if cosine:
+            # cosine decay
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+        # linear decay
+        return 1.0 - progress
 
     return fn
 
@@ -142,7 +152,8 @@ class VAE(pl.LightningModule):
         warmup_epochs=10,
         analytic=False,
         val_samples=1,
-        cosine=0,
+        cosine_decay=0,
+        linear_decay=0,
         **kwargs,
     ):
         super(VAE, self).__init__()
@@ -162,7 +173,8 @@ class VAE(pl.LightningModule):
         self.learning_rate = learning_rate
         self.max_epochs = max_epochs
         self.warmup_epochs = warmup_epochs
-        self.cosine = cosine
+        self.cosine_decay = cosine_decay
+        self.linear_decay = linear_decay
 
         self.gpus = gpus
         self.batch_size = batch_size
@@ -292,7 +304,9 @@ class VAE(pl.LightningModule):
         scheduler = {
             "scheduler": torch.optim.lr_scheduler.LambdaLR(
                 optimizer,
-                linear_warmup_cosine_decay(warmup_steps, total_steps, self.cosine),
+                linear_warmup_decay(
+                    warmup_steps, total_steps, self.cosine_decay, self.linear_decay
+                ),
             ),
             "interval": "step",
             'frequency': 1,
@@ -326,7 +340,8 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float, default=1e-3)
     parser.add_argument('--warmup_epochs', type=int, default=10)
     parser.add_argument('--max_epochs', type=int, default=800)
-    parser.add_argument("--cosine", type=int, default=0)
+    parser.add_argument("--cosine_decay", type=int, default=0)
+    parser.add_argument("--linear_decay", type=int, default=0)
 
     # training params
     parser.add_argument('--gpus', type=int, default=1)
