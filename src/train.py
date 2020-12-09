@@ -283,7 +283,8 @@ class VAE(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.learning_rate)
 
-        if self.warmup_epochs < -1:
+        if self.warmup_epochs < 0:
+            # no lr schedule
             return optimizer
 
         warmup_steps = self.train_iters_per_epoch * self.warmup_epochs
