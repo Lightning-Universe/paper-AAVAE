@@ -61,8 +61,8 @@ class SSLOnlineEvaluator(pl.Callback):
 
         inputs, y = batch
 
-        # last input is for online eval
-        x = inputs[-1]
+        # first input is for online eval
+        x = inputs[0]
         x = x.to(device)
         y = y.to(device)
 
