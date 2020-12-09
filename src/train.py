@@ -140,8 +140,6 @@ class VAE(pl.LightningModule):
         dataset='cifar10',
         max_epochs=100,
         warmup_epochs=10,
-        warmup_start_lr=0.0,
-        eta_min=1e-6,
         analytic=False,
         val_samples=1,
         cosine=0,
