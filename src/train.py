@@ -12,6 +12,7 @@ import math
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
+from pytorch_lightning.callbacks import LearningRateMonitor
 
 from pl_bolts.callbacks import LatentDimInterpolator
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
@@ -21,7 +22,6 @@ from pl_bolts.transforms.dataset_normalizations import (
     stl10_normalization,
     imagenet_normalization,
 )
-
 from resnet import (
     resnet18_encoder,
     resnet18_decoder,
@@ -438,12 +438,14 @@ if __name__ == "__main__":
         interpolate_epoch_interval=20, range_start=-3, range_end=3, normalize=True
     )
 
+    lr_monitor = LearningRateMonitor(logging_interval='step')
+
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         gpus=args.gpus,
         distributed_backend='ddp' if args.gpus > 1 else None,
         precision=16 if args.fp16 else 32,
-        callbacks=[online_evaluator, interpolator],
+        callbacks=[online_evaluator, interpolator, lr_monitor],
     )
 
     trainer.fit(model, dm)
