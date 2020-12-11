@@ -431,6 +431,7 @@ if __name__ == "__main__":
         z_dim=model.encoder.out_dim,
         num_classes=dm.num_classes,
         hidden_dim=None,
+        drop_p=0.0,
         dataset=args.dataset,
     )
 
