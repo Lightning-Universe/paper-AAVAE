@@ -50,30 +50,81 @@ class LocalTransform:
         return self.transform(x)
 
 
-class OriginalTransform(object):
-    def __init__(self, input_height: int = 224, normalize=None) -> None:
+class LinearEvalTrainTransform:
+    """
+    Augmentation for training of classification MLP
+    """
 
-        self.input_height = input_height
-        self.normalize = normalize
-
-        data_transforms = [
-            transforms.Resize(int(self.input_height + 0.1 * self.input_height)),
-            transforms.CenterCrop(self.input_height),
-        ]
-
-        data_transforms = transforms.Compose(data_transforms)
-
-        if normalize is None:
-            self.final_transform = transforms.ToTensor()
+    def __init__(self, dataset="cifar10", normalize=None):
+        if dataset == "cifar10":
+            data_transforms = [
+                transforms.RandomCrop(32, padding=4, padding_mode="reflect"),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+            ]
+        elif dataset == "imagenet":
+            data_transforms = [
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+            ]
+        elif dataset == "stl10":
+            data_transforms = [
+                transforms.RandomResizedCrop(96),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+            ]
         else:
-            self.final_transform = transforms.Compose(
-                [transforms.ToTensor(), normalize]
-            )
+            raise ValueError(f"dataset {dataset} not supported")
 
-        self.transform = transforms.Compose([data_transforms, self.final_transform])
+        if normalize is not None:
+            data_transforms.append(normalize)
+        self.transforms = transforms.Compose(data_transforms)
 
     def __call__(self, x):
-        return self.transform(x)
+        return self.transforms(x)
+
+
+class LinearEvalValidTransform:
+    """
+    Preprocessing for evaluation of classification MLP
+    """
+
+    def __init__(self, dataset="cifar10", normalize=None):
+        if dataset == "cifar10":
+            data_transforms = [
+                transforms.ToTensor(),
+            ]
+        elif dataset == "imagenet":
+            data_transforms = [
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+            ]
+        elif dataset == "stl10":
+            data_transforms = [
+                transforms.Resize(int(96 * 1.1)),
+                transforms.CenterCrop(96),
+                transforms.ToTensor(),
+            ]
+        else:
+            raise ValueError(f"dataset {dataset} not supported")
+
+        if normalize is not None:
+            data_transforms.append(normalize)
+        self.transforms = transforms.Compose(data_transforms)
+
+    def __call__(self, x):
+        return self.transforms(x)
+
+
+class OriginalTransform(LinearEvalValidTransform):
+    """
+    Original is the same as the validation transform used for finetuning.
+    Basically does nothing to image besides minimal preprocessing
+    """
+
+    pass
 
 
 class GaussianBlur:
@@ -91,8 +142,6 @@ class GaussianBlur:
         prob = np.random.random_sample()
 
         sigma = (self.max - self.min) * np.random.random_sample() + self.min
-        sample = cv2.GaussianBlur(
-            sample, (self.kernel_size, self.kernel_size), sigma
-        )
+        sample = cv2.GaussianBlur(sample, (self.kernel_size, self.kernel_size), sigma)
 
         return sample

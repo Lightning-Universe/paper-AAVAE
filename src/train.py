@@ -29,7 +29,12 @@ from resnet import (
     resnet50_decoder,
 )
 
-from transforms import LocalTransform, OriginalTransform
+from transforms import (
+    LocalTransform,
+    OriginalTransform,
+    LinearEvalTrainTransform,
+    LinearEvalValidTransform,
+)
 from online_eval import SSLOnlineEvaluator
 
 encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
@@ -81,6 +86,7 @@ class TrainTransform:
     def __init__(
         self,
         input_height: int = 224,
+        dataset="cifar10",
         gaussian_blur: bool = True,
         jitter_strength: float = 1.0,
         normalize=None,
@@ -92,11 +98,18 @@ class TrainTransform:
             normalize=normalize,
         )
         self.original_transform = OriginalTransform(
-            input_height=input_height, normalize=normalize
+            dataset=dataset, normalize=normalize
+        )
+        self.finetune_transform = LinearEvalTrainTransform(
+            dataset=dataset, normalize=normalize
         )
 
     def __call__(self, x):
-        return self.input_transform(x), self.original_transform(x)
+        return (
+            self.input_transform(x),
+            self.original_transform(x),
+            self.finetune_transform(x),
+        )
 
 
 class EvalTransform:
@@ -104,14 +117,19 @@ class EvalTransform:
     EvalTransform returns the orginial image twice
     """
 
-    def __init__(self, input_height: int = 224, normalize=None) -> None:
+    def __init__(
+        self, input_height: int = 224, dataset="cifar10", normalize=None
+    ) -> None:
         self.original_transform = OriginalTransform(
-            input_height=input_height, normalize=normalize
+            dataset=dataset, normalize=normalize
+        )
+        self.finetune_transform = LinearEvalValidTransform(
+            dataset=dataset, normalize=normalize
         )
 
     def __call__(self, x):
         out = self.original_transform(x)
-        return out, out
+        return out, out, self.finetune_transform(x)
 
 
 class ProjectionEncoder(nn.Module):
@@ -147,7 +165,7 @@ class VAE(pl.LightningModule):
         decoder="resnet18",
         first_conv=False,
         maxpool1=False,
-        dataset='cifar10',
+        dataset="cifar10",
         max_epochs=100,
         warmup_epochs=10,
         analytic=False,
@@ -235,11 +253,11 @@ class VAE(pl.LightningModule):
         return kl, log_pz, log_qz
 
     def step(self, batch, samples=1):
-        if self.dataset == 'stl10':
+        if self.dataset == "stl10":
             unlabeled_batch = batch[0]
             batch = unlabeled_batch
 
-        (x, original), y = batch
+        (x, original, _), y = batch
 
         x = repeat(x, "b c h w -> (b samples) c h w", samples=samples)
         original = repeat(original, "b c h w -> (b samples) c h w", samples=samples)
@@ -309,7 +327,7 @@ class VAE(pl.LightningModule):
                 ),
             ),
             "interval": "step",
-            'frequency': 1,
+            "frequency": 1,
         }
 
         return [optimizer], [scheduler]
@@ -323,50 +341,50 @@ if __name__ == "__main__":
     # encoder/decoder params
     parser.add_argument("--encoder", default="resnet50", choices=encoders.keys())
     parser.add_argument("--decoder", default="resnet50", choices=decoders.keys())
-    parser.add_argument('--h_dim', type=int, default=2048)
-    parser.add_argument('--first_conv', type=bool, default=True)
-    parser.add_argument('--maxpool1', type=bool, default=True)
+    parser.add_argument("--h_dim", type=int, default=2048)
+    parser.add_argument("--first_conv", type=bool, default=True)
+    parser.add_argument("--maxpool1", type=bool, default=True)
 
     # vae params
-    parser.add_argument('--kl_coeff', type=float, default=0.1)
-    parser.add_argument('--latent_dim', type=int, default=128)
+    parser.add_argument("--kl_coeff", type=float, default=0.1)
+    parser.add_argument("--latent_dim", type=int, default=128)
     # use analytic KL
-    parser.add_argument('--analytic', type=int, default=0)
+    parser.add_argument("--analytic", type=int, default=0)
 
     # number of samples to use for validation
-    parser.add_argument('--val_samples', type=int, default=1)
+    parser.add_argument("--val_samples", type=int, default=1)
 
     # optimizer param
-    parser.add_argument('--learning_rate', type=float, default=1e-3)
-    parser.add_argument('--warmup_epochs', type=int, default=10)
-    parser.add_argument('--max_epochs', type=int, default=800)
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--warmup_epochs", type=int, default=10)
+    parser.add_argument("--max_epochs", type=int, default=800)
     parser.add_argument("--cosine_decay", type=int, default=0)
     parser.add_argument("--linear_decay", type=int, default=0)
 
     # training params
-    parser.add_argument('--gpus', type=int, default=1)
-    parser.add_argument("--fp16", action='store_true')
+    parser.add_argument("--gpus", type=int, default=1)
+    parser.add_argument("--fp16", action="store_true")
 
     # datamodule params
-    parser.add_argument('--data_path', type=str, default='.')
+    parser.add_argument("--data_path", type=str, default=".")
     parser.add_argument(
-        '--dataset', type=str, default="cifar10"
+        "--dataset", type=str, default="cifar10"
     )  # cifar10, stl10, imagenet
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--num_workers', type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--num_workers", type=int, default=8)
 
     # transforms param
-    parser.add_argument('--input_height', type=int, default=32)
-    parser.add_argument('--gaussian_blur', type=bool, default=True)
-    parser.add_argument('--jitter_strength', type=float, default=1.0)
+    parser.add_argument("--input_height", type=int, default=32)
+    parser.add_argument("--gaussian_blur", type=bool, default=True)
+    parser.add_argument("--jitter_strength", type=float, default=1.0)
 
     args = parser.parse_args()
 
     # set hidden dim for resnet18
-    if args.encoder == 'resnet18':
+    if args.encoder == "resnet18":
         args.h_dim = 512
 
-    if args.dataset == 'cifar10':
+    if args.dataset == "cifar10":
         dm = CIFAR10DataModule(
             data_dir=args.data_path,
             batch_size=args.batch_size,
@@ -382,7 +400,7 @@ if __name__ == "__main__":
 
         args.gaussian_blur = False
         args.jitter_strength = 0.5
-    elif args.dataset == 'stl10':
+    elif args.dataset == "stl10":
         dm = STL10DataModule(
             data_dir=args.data_path,
             batch_size=args.batch_size,
@@ -397,7 +415,7 @@ if __name__ == "__main__":
         args.maxpool1 = False
         args.first_conv = True
         normalization = stl10_normalization()
-    elif args.dataset == 'imagenet':
+    elif args.dataset == "imagenet":
         dm = ImagenetDataModule(
             data_dir=args.data_path,
             batch_size=args.batch_size,
@@ -415,13 +433,14 @@ if __name__ == "__main__":
 
     dm.train_transforms = TrainTransform(
         input_height=args.input_height,
+        dataset=args.dataset,
         gaussian_blur=args.gaussian_blur,
         jitter_strength=args.jitter_strength,
         normalize=normalization,
     )
 
     dm.val_transforms = EvalTransform(
-        input_height=args.input_height, normalize=normalization
+        input_height=args.input_height, dataset=args.dataset, normalize=normalization
     )
 
     # model init
@@ -439,12 +458,12 @@ if __name__ == "__main__":
         interpolate_epoch_interval=20, range_start=-3, range_end=3, normalize=True
     )
 
-    lr_monitor = LearningRateMonitor(logging_interval='step')
+    lr_monitor = LearningRateMonitor(logging_interval="step")
 
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         gpus=args.gpus,
-        distributed_backend='ddp' if args.gpus > 1 else None,
+        distributed_backend="ddp" if args.gpus > 1 else None,
         precision=16 if args.fp16 else 32,
         callbacks=[online_evaluator, interpolator, lr_monitor],
     )
