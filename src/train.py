@@ -29,7 +29,12 @@ from resnet import (
     resnet50_decoder,
 )
 
-from transforms import LocalTransform, OriginalTransform
+from transforms import (
+    LocalTransform,
+    OriginalTransform,
+    LinearEvalTrainTransform,
+    LinearEvalValidTransform,
+)
 from online_eval import SSLOnlineEvaluator
 
 encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
@@ -81,6 +86,7 @@ class TrainTransform:
     def __init__(
         self,
         input_height: int = 224,
+        dataset="cifar10",
         gaussian_blur: bool = True,
         jitter_strength: float = 1.0,
         normalize=None,
@@ -92,11 +98,18 @@ class TrainTransform:
             normalize=normalize,
         )
         self.original_transform = OriginalTransform(
-            input_height=input_height, normalize=normalize
+            dataset=dataset, normalize=normalize
+        )
+        self.finetune_transform = LinearEvalTrainTransform(
+            dataset=dataset, normalize=normalize
         )
 
     def __call__(self, x):
-        return self.input_transform(x), self.original_transform(x)
+        return (
+            self.input_transform(x),
+            self.original_transform(x),
+            self.finetune_transform(x),
+        )
 
 
 class EvalTransform:
@@ -104,14 +117,19 @@ class EvalTransform:
     EvalTransform returns the orginial image twice
     """
 
-    def __init__(self, input_height: int = 224, normalize=None) -> None:
+    def __init__(
+        self, input_height: int = 224, dataset="cifar10", normalize=None
+    ) -> None:
         self.original_transform = OriginalTransform(
-            input_height=input_height, normalize=normalize
+            dataset=dataset, normalize=normalize
+        )
+        self.finetune_transform = LinearEvalValidTransform(
+            dataset=dataset, normalize=normalize
         )
 
     def __call__(self, x):
         out = self.original_transform(x)
-        return out, out
+        return out, out, self.finetune_transform(x)
 
 
 class ProjectionEncoder(nn.Module):
@@ -239,7 +257,7 @@ class VAE(pl.LightningModule):
             unlabeled_batch = batch[0]
             batch = unlabeled_batch
 
-        (x, original), y = batch
+        (x, original, _), y = batch
 
         x = repeat(x, "b c h w -> (b samples) c h w", samples=samples)
         original = repeat(original, "b c h w -> (b samples) c h w", samples=samples)
@@ -420,13 +438,14 @@ if __name__ == "__main__":
 
     dm.train_transforms = TrainTransform(
         input_height=args.input_height,
+        dataset=args.dataset,
         gaussian_blur=args.gaussian_blur,
         jitter_strength=args.jitter_strength,
         normalize=normalization,
     )
 
     dm.val_transforms = EvalTransform(
-        input_height=args.input_height, normalize=normalization
+        input_height=args.input_height, dataset=args.dataset, normalize=normalization
     )
 
     # model init
