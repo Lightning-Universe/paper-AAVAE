@@ -340,8 +340,8 @@ class VAE(pl.LightningModule):
 
 if __name__ == "__main__":
     # torch.autograd.set_detect_anomaly(True)
-    pl.seed_everything(0)
     parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=0)
 
     # encoder/decoder params
     parser.add_argument("--encoder", default="resnet50", choices=encoders.keys())
@@ -384,6 +384,7 @@ if __name__ == "__main__":
     parser.add_argument("--jitter_strength", type=float, default=1.0)
 
     args = parser.parse_args()
+    pl.seed_everything(args.seed)
 
     # set hidden dim for resnet18
     if args.encoder == "resnet18":
