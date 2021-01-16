@@ -2,7 +2,7 @@ scipy==1.4.1
 torchvision==0.7.0
 torch==1.6.0
 numpy==1.18.1
-pytorch_lightning==1.0.6
+pytorch-lightning==1.1.4
 git+https://github.com/PytorchLightning/pytorch-lightning-bolts.git@exps
 opencv-python-headless
 sklearn

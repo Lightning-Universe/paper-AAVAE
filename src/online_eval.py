@@ -3,6 +3,7 @@ import math
 import pytorch_lightning as pl
 from torch.nn import functional as F
 from pytorch_lightning.metrics.functional import accuracy
+from pytorch_lightning.metrics import Accuracy
 from typing import Optional
 
 
@@ -25,9 +26,6 @@ class SSLOnlineEvaluator(pl.Callback):
         self.num_classes = num_classes
         self.dataset = dataset
 
-        self.loss = []
-        self.acc = []
-
     def on_pretrain_routine_start(self, trainer, pl_module):
         from pl_bolts.models.self_supervised.evaluator import SSLEvaluator
 
@@ -37,6 +35,8 @@ class SSLOnlineEvaluator(pl.Callback):
             p=self.drop_p,
             n_hidden=self.hidden_dim,
         ).to(pl_module.device)
+
+        self.valid_acc = Accuracy().to(pl_module.device)
 
         self.optimizer = torch.optim.Adam(
             pl_module.non_linear_evaluator.parameters(), lr=1e-4
@@ -87,8 +87,8 @@ class SSLOnlineEvaluator(pl.Callback):
 
         # log metrics
         acc = accuracy(mlp_preds, y)
-        metrics = {"ft_callback_mlp_loss": mlp_loss, "ft_callback_mlp_acc": acc}
-        pl_module.logger.log_metrics(metrics, step=trainer.global_step)
+        pl_module.log('online_train_acc', acc, on_step=True, on_epoch=False)
+        pl_module.log('online_train_loss', mlp_loss, on_step=True, on_epoch=False)
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         x, y = self.to_device(batch, pl_module.device)
@@ -102,19 +102,13 @@ class SSLOnlineEvaluator(pl.Callback):
         mlp_preds = pl_module.non_linear_evaluator(representations)
         mlp_loss = F.cross_entropy(mlp_preds, y)
 
-        # log metrics
-        acc = accuracy(mlp_preds, y)
+        self.valid_acc(mlp_preds, y)
 
-        self.loss.append(mlp_loss.item())
-        self.acc.append(acc.item())
-
-        metrics = {"ft_callback_mlp_loss": mlp_loss, "ft_callback_mlp_acc": acc}
-        pl_module.logger.log_metrics(metrics, step=trainer.global_step)
+        # log loss
+        pl_module.log('online_val_loss', mlp_loss, on_step=False, on_epoch=True, sync_dist=True)
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        metrics = {"val_mlp_loss": sum(self.loss) / len(self.loss), "val_mlp_acc": sum(self.acc) / len(self.acc)}
-        pl_module.logger.log_metrics(metrics, step=trainer.current_epoch)
-
-        # reset
-        self.loss = []
-        self.acc = []
+        # compute accuracy, synced over nodes and batches
+        val_acc = self.valid_acc.compute()
+        pl_module.log('online_val_acc', val_acc)
+        self.valid_acc.reset()
