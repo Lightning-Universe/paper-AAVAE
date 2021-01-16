@@ -172,6 +172,7 @@ class VAE(pl.LightningModule):
         val_samples=1,
         cosine_decay=0,
         linear_decay=0,
+        learn_scale=1,
         **kwargs,
     ):
         super(VAE, self).__init__()
@@ -212,6 +213,7 @@ class VAE(pl.LightningModule):
         )
 
         self.log_scale = nn.Parameter(torch.Tensor([0.0]))
+        self.log_scale.requires_grad = bool(learn_scale)
 
         self.projection = ProjectionEncoder(
             input_dim=self.h_dim, hidden_dim=self.h_dim, output_dim=self.latent_dim
@@ -353,6 +355,7 @@ if __name__ == "__main__":
     # vae params
     parser.add_argument("--kl_coeff", type=float, default=0.1)
     parser.add_argument("--latent_dim", type=int, default=128)
+    parser.add_argument("--learn_scale", type=int, default=1)
     # use analytic KL
     parser.add_argument("--analytic", type=int, default=0)
 
