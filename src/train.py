@@ -261,34 +261,54 @@ class VAE(pl.LightningModule):
 
         (x, original, _), y = batch
 
-        x = repeat(x, "b c h w -> (b samples) c h w", samples=samples)
-        original = repeat(original, "b c h w -> (b samples) c h w", samples=samples)
-
         batch_size, c, h, w = x.shape
         pixels = c * h * w
 
         x_enc = self.encoder(x)
         mu, log_var = self.projection(x_enc)
-        p, q, z = self.sample(mu, log_var)
 
-        if self.analytic:
-            kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
-        else:
-            kl, log_pz, log_qz = self.kl_divergence_mc(p, q, z)
+        log_pzs = []
+        log_qzs = []
+        log_pxzs = []
+        kls = []
+        elbos = []
+        losses = []
 
-        x_hat = self.decoder(z)
+        for _ in range(samples):
+            # NOTE: doing a for loop instead of tile to support arbitrary number of samples without
+            # decreasing batch size.
 
-        log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
+            p, q, z = self.sample(mu, log_var)
 
-        elbo = (kl - log_pxz).mean()
-        loss = (self.kl_coeff * kl - log_pxz).mean()
+            if self.analytic:
+                kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
+            else:
+                kl, log_pz, log_qz = self.kl_divergence_mc(p, q, z)
 
-        # add samples dimension back
-        log_pxz = rearrange(log_pxz, "(b samples) -> b samples", samples=samples)
-        log_pz = rearrange(log_pz, "(b samples) -> b samples", samples=samples)
-        log_qz = rearrange(log_qz, "(b samples) -> b samples", samples=samples)
+            x_hat = self.decoder(z)
 
-        # marginal likelihood, logsumexp over sample dim, mean ove batch dim
+            log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
+
+            elbo = kl - log_pxz
+            loss = self.kl_coeff * kl - log_pxz
+
+            log_qzs.append(log_qz)
+            log_pzs.append(log_pz)
+            log_pxzs.append(log_pxz)
+            kls.append(kl)
+            elbos.append(elbo)
+            losses.append(loss)
+
+        # all of these will be of shape [batch, samples, ... ]
+        log_pz = torch.stack(log_pzs, dim=1)
+        log_qz = torch.stack(log_qzs, dim=1)
+        log_pxz = torch.stack(log_pxzs, dim=1)
+        kl = torch.stack(kls, dim=1)
+
+        elbo = torch.stack(elbos, dim=1).mean()
+        loss = torch.stack(losses, dim=1).mean()
+
+        # marginal likelihood, logsumexp over sample dim, mean over batch dim
         log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=1).mean(dim=0) - np.log(
             samples
         )
