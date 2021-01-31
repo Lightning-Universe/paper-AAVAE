@@ -78,6 +78,14 @@ def linear_warmup_decay(warmup_steps, total_steps, cosine=True, linear=False):
     return fn
 
 
+def kl_warmup(warmup_steps):
+    def fn(step):
+        if step < warmup_steps:
+            return float(step) / float(max(1, warmup_steps))
+        return 1.0
+    return fn
+
+
 class TrainTransform:
     """
     TrainTransform returns a transformed image along with the original
@@ -157,7 +165,7 @@ class VAE(pl.LightningModule):
         num_samples,
         gpus=1,
         batch_size=32,
-        kl_coeff=0.1,
+	    kl_warmup_epochs=1,
         h_dim=2048,
         latent_dim=128,
         learning_rate=1e-4,
@@ -179,7 +187,6 @@ class VAE(pl.LightningModule):
         self.save_hyperparameters()
 
         self.input_height = input_height
-        self.kl_coeff = kl_coeff
         self.analytic = analytic
 
         self.h_dim = h_dim
@@ -204,6 +211,7 @@ class VAE(pl.LightningModule):
             self.gpus * self.batch_size if self.gpus > 0 else self.batch_size
         )
         self.train_iters_per_epoch = self.num_samples // global_batch_size
+        self.kl_warmup = kl_warmup(self.train_iters_per_epoch * kl_warmup_epochs)
 
         self.in_channels = 3
 
@@ -260,6 +268,7 @@ class VAE(pl.LightningModule):
             batch = unlabeled_batch
 
         (x, original, _), y = batch
+        kl_coeff = self.kl_warmup(self.trainer.global_step)
 
         batch_size, c, h, w = x.shape
         pixels = c * h * w
@@ -290,7 +299,7 @@ class VAE(pl.LightningModule):
             log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
 
             elbo = kl - log_pxz
-            loss = self.kl_coeff * kl - log_pxz
+	        loss = (kl_coeff * kl - log_pxz).mean()
 
             log_qzs.append(log_qz)
             log_pzs.append(log_pz)
