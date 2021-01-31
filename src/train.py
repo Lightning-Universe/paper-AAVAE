@@ -299,7 +299,7 @@ class VAE(pl.LightningModule):
             log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
 
             elbo = kl - log_pxz
-	        loss = (kl_coeff * kl - log_pxz).mean()
+            loss = kl_coeff * kl - log_pxz
 
             log_qzs.append(log_qz)
             log_pzs.append(log_pz)
@@ -325,6 +325,7 @@ class VAE(pl.LightningModule):
 
         logs = {
             "kl": kl.mean(),
+	        "kl_coeff": kl_coeff,
             "elbo": elbo,
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
@@ -382,7 +383,7 @@ if __name__ == "__main__":
     parser.add_argument("--maxpool1", type=bool, default=True)
 
     # vae params
-    parser.add_argument("--kl_coeff", type=float, default=0.1)
+    parser.add_argument('--kl_warmup_epochs', type=float, default=10)
     parser.add_argument("--latent_dim", type=int, default=128)
     parser.add_argument("--learn_scale", type=int, default=1)
     # use analytic KL
