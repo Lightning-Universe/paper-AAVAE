@@ -3,6 +3,7 @@ torchvision==0.7.0
 torch==1.6.0
 numpy==1.18.1
 pytorch-lightning==1.1.4
+-e git+https://github.com/PytorchLightning/pytorch-lightning-bolts.git@exps
 opencv-python-headless
 sklearn
 einops==0.3.0
