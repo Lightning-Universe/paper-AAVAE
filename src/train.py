@@ -231,6 +231,9 @@ class VAE(pl.LightningModule):
         return self.decoder(x)
 
     def sample(self, z_mu, z_var, eps=1e-6):
+        """
+        z_mu and z_var is (batch, dim)
+        """
         # add ep to prevent 0 variance
         std = torch.exp(z_var / 2) + eps
 
@@ -242,6 +245,9 @@ class VAE(pl.LightningModule):
 
     @staticmethod
     def kl_divergence_mc(p, q, z):
+        """
+        z is (batch, dim)
+        """
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
@@ -253,6 +259,9 @@ class VAE(pl.LightningModule):
 
     @staticmethod
     def kl_divergence_analytic(p, q, z):
+        """
+        z is (batch, dim)
+        """
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
