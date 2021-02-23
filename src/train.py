@@ -35,7 +35,7 @@ from transforms import (
     LinearEvalTrainTransform,
     LinearEvalValidTransform,
 )
-from online_eval import SSLOnlineEvaluator
+from online_eval import OnlineFineTuner
 
 encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
 decoders = {"resnet18": resnet18_decoder, "resnet50": resnet50_decoder}
@@ -494,11 +494,9 @@ if __name__ == "__main__":
     # model init
     model = VAE(**args.__dict__)
 
-    online_evaluator = SSLOnlineEvaluator(
-        z_dim=model.encoder.out_dim,
+    online_evaluator = OnlineFineTuner(
+        encoder_output_dim=model.encoder.out_dim,
         num_classes=dm.num_classes,
-        hidden_dim=None,
-        drop_p=0.0,
         dataset=args.dataset,
     )
 
