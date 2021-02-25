@@ -7,7 +7,6 @@ from torchvision.datasets import CIFAR10
 import torchvision.transforms as T
 import numpy as np
 from torch.optim import Adam
-from einops import repeat, rearrange
 import math
 
 import pytorch_lightning as pl
@@ -265,7 +264,6 @@ class VAE(pl.LightningModule):
         log_pz = p.log_prob(z)
         log_qz = q.log_prob(z)
 
-        # kl, log_pz, log_qz should be (batch * samples)
         kl = torch.distributions.kl.kl_divergence(q, p).sum(dim=-1)
         log_pz = p.log_prob(z).sum(dim=-1)
         log_qz = q.log_prob(z).sum(dim=-1)
@@ -310,6 +308,7 @@ class VAE(pl.LightningModule):
             elbo = kl - log_pxz
             loss = kl_coeff * kl - log_pxz
 
+            # all these are (batch) dim
             log_qzs.append(log_qz)
             log_pzs.append(log_pz)
             log_pxzs.append(log_pxz)
@@ -317,7 +316,7 @@ class VAE(pl.LightningModule):
             elbos.append(elbo)
             losses.append(loss)
 
-        # all of these will be of shape [batch, samples, ... ]
+        # all of these will be of shape (batch, samples)
         log_pz = torch.stack(log_pzs, dim=1)
         log_qz = torch.stack(log_qzs, dim=1)
         log_pxz = torch.stack(log_pxzs, dim=1)
