@@ -383,7 +383,7 @@ if __name__ == "__main__":
     parser.add_argument("--maxpool1", type=bool, default=True)
 
     # vae params
-    parser.add_argument('--kl_warmup_epochs', type=float, default=10)  # set to -1 to use a fixed coeff
+    parser.add_argument('--kl_warmup_epochs', type=float, default=-1)  # set to -1 to use a fixed coeff
     parser.add_argument('--kl_coeff', type=float, default=0.1)
     parser.add_argument("--latent_dim", type=int, default=128)
     parser.add_argument("--learn_scale", type=int, default=1)
