@@ -8,6 +8,7 @@ import torchvision.transforms as T
 import numpy as np
 from torch.optim import Adam
 import math
+from typing import Union, List, Optional, Sequence, Dict, Iterator, Tuple, Callable
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
