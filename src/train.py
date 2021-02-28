@@ -354,7 +354,7 @@ class VAE(pl.LightningModule):
 
     def exclude_from_wt_decay(
         self,
-        named_params: Iterator[Tuple[str, Tensor]],
+        named_params: Iterator[Tuple[str, torch.Tensor]],
         weight_decay: float,
         skip_list: List[str] = ['bias', 'bn'],
     ) -> List[Dict]:
