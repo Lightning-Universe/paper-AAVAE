@@ -531,6 +531,4 @@ TODO:
 
 1. convert from orig -> orig
 2. add metrics Cho mentioned
-3. check kl warmup, log_scale, multiple sample per eval
-4. add discretizedlogisticlikelihood
 """

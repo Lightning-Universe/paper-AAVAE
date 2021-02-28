@@ -16,11 +16,6 @@ from pytorch_lightning.callbacks import LearningRateMonitor
 from pl_bolts.callbacks import LatentDimInterpolator
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
 from pl_bolts.datamodules import CIFAR10DataModule, STL10DataModule, ImagenetDataModule
-from pl_bolts.transforms.dataset_normalizations import (
-    cifar10_normalization,
-    stl10_normalization,
-    imagenet_normalization,
-)
 from resnet import (
     resnet18_encoder,
     resnet18_decoder,
@@ -28,6 +23,7 @@ from resnet import (
     resnet50_decoder,
 )
 
+from distributions import DiscMixLogistic
 from transforms import (
     LocalTransform,
     OriginalTransform,
@@ -40,13 +36,12 @@ encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
 decoders = {"resnet18": resnet18_decoder, "resnet50": resnet50_decoder}
 
 
-def gaussian_likelihood(mean, logscale, sample):
-    scale = torch.exp(logscale)
-    dist = torch.distributions.Normal(mean, scale)
-    log_pxz = dist.log_prob(sample)
+def disc_mixture_logistic_likelihood(logits, x):
+    dist = DiscMixLogistic(logits)
+    recon = dist.log_prob(x)  # returns (B, H, W)
 
-    # sum over dimensions
-    return log_pxz.sum(dim=(1, 2, 3))
+    # sum over RGB dim is done
+    return torch.sum(recon, dim=[1, 2])
 
 
 def linear_warmup_decay(warmup_steps, total_steps, cosine=True, linear=False):
@@ -165,6 +160,7 @@ class VAE(pl.LightningModule):
         gpus=1,
         batch_size=32,
 	    kl_warmup_epochs=1,
+        kl_coeff=0.1,
         h_dim=2048,
         latent_dim=128,
         learning_rate=1e-4,
@@ -175,7 +171,6 @@ class VAE(pl.LightningModule):
         dataset="cifar10",
         max_epochs=100,
         warmup_epochs=10,
-        analytic=False,
         val_samples=1,
         cosine_decay=0,
         linear_decay=0,
@@ -186,7 +181,6 @@ class VAE(pl.LightningModule):
         self.save_hyperparameters()
 
         self.input_height = input_height
-        self.analytic = analytic
 
         self.h_dim = h_dim
         self.latent_dim = latent_dim
@@ -210,7 +204,10 @@ class VAE(pl.LightningModule):
             self.gpus * self.batch_size if self.gpus > 0 else self.batch_size
         )
         self.train_iters_per_epoch = self.num_samples // global_batch_size
-        self.kl_warmup = kl_warmup(self.train_iters_per_epoch * kl_warmup_epochs)
+
+        self.kl_coeff = kl_coeff
+        self.kl_warmup_epochs = kl_warmup_epochs
+        self.kl_warmup = kl_warmup(self.train_iters_per_epoch * self.kl_warmup_epochs)
 
         self.in_channels = 3
 
@@ -219,15 +216,12 @@ class VAE(pl.LightningModule):
             self.latent_dim, self.input_height, self.first_conv, self.maxpool1
         )
 
-        self.log_scale = nn.Parameter(torch.Tensor([0.0]))
-        self.log_scale.requires_grad = bool(learn_scale)
-
         self.projection = ProjectionEncoder(
             input_dim=self.h_dim, hidden_dim=self.h_dim, output_dim=self.latent_dim
         )
 
     def forward(self, x):
-        return self.decoder(x)
+        return self.encoder(x)
 
     def sample(self, z_mu, z_var, eps=1e-6):
         """
@@ -275,7 +269,11 @@ class VAE(pl.LightningModule):
             batch = unlabeled_batch
 
         (x, original, _), y = batch
-        kl_coeff = self.kl_warmup(self.trainer.global_step)
+
+        if self.kl_warmup_epochs == -1:
+            kl_coeff = self.kl_coeff
+        else:
+            kl_coeff = self.kl_warmup(self.trainer.global_step)
 
         batch_size, c, h, w = x.shape
         pixels = c * h * w
@@ -294,15 +292,11 @@ class VAE(pl.LightningModule):
         # without decreasing batch size.
         for _ in range(samples):
             p, q, z = self.sample(mu, log_var)
-
-            if self.analytic:
-                kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
-            else:
-                kl, log_pz, log_qz = self.kl_divergence_mc(p, q, z)
+            kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
 
             x_hat = self.decoder(z)
 
-            log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
+            log_pxz = disc_mixture_logistic_likelihood(x_hat, original)
 
             elbo = kl - log_pxz
             loss = kl_coeff * kl - log_pxz
@@ -337,7 +331,6 @@ class VAE(pl.LightningModule):
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
             "log_px": log_px,
-            "log_scale": self.log_scale.item(),
         }
 
         return loss, logs, z
@@ -390,14 +383,13 @@ if __name__ == "__main__":
     parser.add_argument("--maxpool1", type=bool, default=True)
 
     # vae params
-    parser.add_argument('--kl_warmup_epochs', type=float, default=10)
+    parser.add_argument('--kl_warmup_epochs', type=float, default=10)  # set to -1 to use a fixed coeff
+    parser.add_argument('--kl_coeff', type=float, default=0.1)
     parser.add_argument("--latent_dim", type=int, default=128)
     parser.add_argument("--learn_scale", type=int, default=1)
-    # use analytic KL
-    parser.add_argument("--analytic", type=int, default=0)
 
     # number of samples to use for validation
-    parser.add_argument("--val_samples", type=int, default=1)
+    parser.add_argument("--val_samples", type=int, default=16)
 
     # optimizer param
     parser.add_argument("--learning_rate", type=float, default=1e-3)
@@ -442,7 +434,6 @@ if __name__ == "__main__":
 
         args.maxpool1 = False
         args.first_conv = False
-        normalization = cifar10_normalization()
 
         args.gaussian_blur = False
         args.jitter_strength = 0.5
@@ -460,7 +451,6 @@ if __name__ == "__main__":
 
         args.maxpool1 = False
         args.first_conv = True
-        normalization = stl10_normalization()
     elif args.dataset == "imagenet":
         dm = ImagenetDataModule(
             data_dir=args.data_path,
@@ -473,7 +463,6 @@ if __name__ == "__main__":
 
         args.maxpool1 = True
         args.first_conv = True
-        normalization = imagenet_normalization()
     else:
         raise NotImplementedError("other datasets have not been implemented till now")
 
@@ -482,11 +471,11 @@ if __name__ == "__main__":
         dataset=args.dataset,
         gaussian_blur=args.gaussian_blur,
         jitter_strength=args.jitter_strength,
-        normalize=normalization,
+        normalize=None,
     )
 
     dm.val_transforms = EvalTransform(
-        input_height=args.input_height, dataset=args.dataset, normalize=normalization
+        input_height=args.input_height, dataset=args.dataset, normalize=None
     )
 
     # model init
@@ -498,10 +487,6 @@ if __name__ == "__main__":
         dataset=args.dataset,
     )
 
-    interpolator = LatentDimInterpolator(
-        interpolate_epoch_interval=20, range_start=-3, range_end=3, normalize=True
-    )
-
     lr_monitor = LearningRateMonitor(logging_interval="step")
 
     trainer = pl.Trainer(
@@ -509,7 +494,7 @@ if __name__ == "__main__":
         gpus=args.gpus,
         distributed_backend="ddp" if args.gpus > 1 else None,
         precision=16 if args.fp16 else 32,
-        callbacks=[online_evaluator, interpolator, lr_monitor],
+        callbacks=[online_evaluator, lr_monitor],
     )
 
     trainer.fit(model, dm)
