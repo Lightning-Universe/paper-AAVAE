@@ -4,7 +4,7 @@ References:
     - https://github.com/pytorch/pytorch/blob/master/torch/optim/sgd.py
 """
 import torch
-from torch.optim import Optimizer, required
+from torch.optim.optimizer import Optimizer, required
 
 
 class SGDLARS(Optimizer):
