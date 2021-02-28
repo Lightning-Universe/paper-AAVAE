@@ -31,6 +31,7 @@ from transforms import (
     LinearEvalValidTransform,
 )
 from online_eval import OnlineFineTuner
+from lars import SGDLARS
 
 encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
 decoders = {"resnet18": resnet18_decoder, "resnet50": resnet50_decoder}
@@ -175,6 +176,8 @@ class VAE(pl.LightningModule):
         cosine_decay=0,
         linear_decay=0,
         learn_scale=1,
+        weight_decay=1e-6,
+        momentum=0.9,
         **kwargs,
     ):
         super(VAE, self).__init__()
@@ -190,6 +193,9 @@ class VAE(pl.LightningModule):
         self.maxpool1 = maxpool1
 
         self.learning_rate = learning_rate
+        self.momentum = momentum
+        self.weight_decay = weight_decay
+
         self.max_epochs = max_epochs
         self.warmup_epochs = warmup_epochs
         self.cosine_decay = cosine_decay
@@ -345,8 +351,34 @@ class VAE(pl.LightningModule):
         self.log_dict({f"val_{k}": v for k, v in logs.items()})
         return loss
 
+    def exclude_from_wt_decay(
+        self,
+        named_params: Iterator[Tuple[str, Tensor]],
+        weight_decay: float,
+        skip_list: List[str] = ['bias', 'bn'],
+    ) -> List[Dict]:
+        params = []
+        excluded_params = []
+
+        for name, param in named_params:
+            if not param.requires_grad:
+                continue
+            elif any(layer_name in name for layer_name in skip_list):
+                excluded_params.append(param)
+            else:
+                params.append(param)
+
+        return [{'params': params, 'weight_decay': weight_decay},
+                {'params': excluded_params, 'weight_decay': 0.}]
+
     def configure_optimizers(self):
-        optimizer = Adam(self.parameters(), lr=self.learning_rate)
+        params = self.exclude_from_wt_decay(self.parameters(), weight_decay=self.weight_decay)
+        optimizer = SGDLARS(
+            params,
+            lr=self.learning_rate,
+            momentum=self.momentum,
+            weight_decay=self.weight_decay,
+        )
 
         if self.warmup_epochs < 0:
             # no lr schedule
@@ -392,7 +424,10 @@ if __name__ == "__main__":
     parser.add_argument("--val_samples", type=int, default=16)
 
     # optimizer param
-    parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--learning_rate", type=float, default=1.)
+    parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--weight_decay", type=float, default=1e-6)
+
     parser.add_argument("--warmup_epochs", type=int, default=10)
     parser.add_argument("--max_epochs", type=int, default=800)
     parser.add_argument("--cosine_decay", type=int, default=0)
