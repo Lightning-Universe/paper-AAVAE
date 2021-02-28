@@ -373,7 +373,7 @@ class VAE(pl.LightningModule):
                 {'params': excluded_params, 'weight_decay': 0.}]
 
     def configure_optimizers(self):
-        params = self.exclude_from_wt_decay(self.parameters(), weight_decay=self.weight_decay)
+        params = self.exclude_from_wt_decay(self.named_parameters(), weight_decay=self.weight_decay)
         optimizer = SGDLARS(
             params,
             lr=self.learning_rate,
