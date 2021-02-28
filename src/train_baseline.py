@@ -40,6 +40,16 @@ encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
 decoders = {"resnet18": resnet18_decoder, "resnet50": resnet50_decoder}
 
 
+def discretized_logistic(mean, logscale, sample, binsize=1 / 256):
+    mean = mean.clamp(min=-0.5 + 1 / 512, max=0.5 - 1 / 512)
+    scale = torch.exp(logscale)
+    sample = (torch.floor(sample / binsize) * binsize - mean) / scale
+    log_pxz = torch.log(
+        torch.sigmoid(sample + binsize / scale) - torch.sigmoid(sample) + 1e-7
+    )
+    return log_pxz.sum(dim=(1, 2, 3))
+
+
 def gaussian_likelihood(mean, logscale, sample):
     scale = torch.exp(logscale)
     dist = torch.distributions.Normal(mean, scale)
@@ -328,6 +338,8 @@ class VAE(pl.LightningModule):
         log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=1).mean(dim=0) - np.log(
             samples
         )
+        l_g_hat = log_px.sum()
+        elbo += l_g_hat # scaling param add
         bpd = -log_px / (pixels * np.log(2))  # need log_px in base 2
 
         logs = {
@@ -513,3 +525,12 @@ if __name__ == "__main__":
     )
 
     trainer.fit(model, dm)
+
+"""
+TODO:
+
+1. convert from orig -> orig
+2. add metrics Cho mentioned
+3. check kl warmup, log_scale, multiple sample per eval
+4. add likelihood from gaussian, pixel cnn++, iaf-vae
+"""
