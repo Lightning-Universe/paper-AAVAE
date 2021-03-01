@@ -38,7 +38,7 @@ from transforms import (
     LinearEvalValidTransform,
 )
 from online_eval import OnlineFineTuner
-from lars import SGDLARS
+
 
 encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
 decoders = {"resnet18": resnet18_decoder, "resnet50": resnet50_decoder}
