@@ -13,6 +13,7 @@ from typing import Union, List, Optional, Sequence, Dict, Iterator, Tuple, Calla
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
 from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from pl_bolts.callbacks import LatentDimInterpolator
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
@@ -262,9 +263,6 @@ class VAE(pl.LightningModule):
         """
         z is (batch, dim)
         """
-        log_pz = p.log_prob(z)
-        log_qz = q.log_prob(z)
-
         kl = torch.distributions.kl.kl_divergence(q, p).sum(dim=-1)
         log_pz = p.log_prob(z).sum(dim=-1)
         log_qz = q.log_prob(z).sum(dim=-1)
@@ -338,6 +336,10 @@ class VAE(pl.LightningModule):
             "bpd": bpd,
             "log_pxz": log_pxz.mean(),
             "log_px": log_px,
+            "metric1": metric1.mean(),
+            "metric2": metric2.mean(),
+            "metric3": metric3.mean(),
+            "metric4": metric4.mean(),
         }
 
         return loss, logs, z
@@ -420,7 +422,7 @@ if __name__ == "__main__":
     parser.add_argument("--val_samples", type=int, default=16)
 
     # optimizer param
-    parser.add_argument("--learning_rate", type=float, default=1.)
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=1e-6)
 
@@ -519,13 +521,20 @@ if __name__ == "__main__":
     )
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
+    model_checkpoint = ModelCheckpoint(save_last=True, save_top_k=1, monitor='val_elbo')  # for now let's monitor elbo
 
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         gpus=args.gpus,
         distributed_backend="ddp" if args.gpus > 1 else None,
         precision=16 if args.fp16 else 32,
-        callbacks=[online_evaluator, lr_monitor],
+        callbacks=[online_evaluator, lr_monitor, model_checkpoint],
     )
 
     trainer.fit(model, dm)
+
+
+"""
+1. reconstruction
+2. metrics
+"""
