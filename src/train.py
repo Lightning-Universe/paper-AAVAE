@@ -306,7 +306,8 @@ class VAE(pl.LightningModule):
 
         # this computes log_pz, log_qz and log_pxz @ mu
         if is_val:
-            z = mu   # replace z with mu
+            with torch.no_grad():
+                z = mu.clone().detach()   # replace z with mu
 
         kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
 
