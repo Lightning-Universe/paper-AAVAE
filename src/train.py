@@ -374,12 +374,7 @@ class VAE(pl.LightningModule):
 
     def configure_optimizers(self):
         params = self.exclude_from_wt_decay(self.named_parameters(), weight_decay=self.weight_decay)
-        optimizer = SGDLARS(
-            params,
-            lr=self.learning_rate,
-            momentum=self.momentum,
-            weight_decay=self.weight_decay,
-        )
+        optimizer = Adam(params, lr=self.learning_rate)
 
         if self.warmup_epochs < 0:
             # no lr schedule
