@@ -424,6 +424,7 @@ if __name__ == "__main__":
     # torch.autograd.set_detect_anomaly(True)
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument('--local_rank', type=int, default=0)  # added to launch 2 ddp script on same node
 
     # encoder/decoder params
     parser.add_argument("--encoder", default="resnet50", choices=encoders.keys())
