@@ -526,7 +526,7 @@ if __name__ == "__main__":
     )
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    model_checkpoint = ModelCheckpoint(save_last=True, save_top_k=1, monitor='val_elbo')  # for now let's monitor elbo
+    model_checkpoint = ModelCheckpoint(save_last=True, save_top_k=1, monitor='val_loss')  # for now let's monitor elbo
 
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
