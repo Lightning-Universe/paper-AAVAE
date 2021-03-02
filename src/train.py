@@ -129,8 +129,19 @@ class EvalTransform:
     """
 
     def __init__(
-        self, input_height: int = 224, dataset="cifar10", normalize=None
+        self,
+        input_height: int = 224,
+        dataset="cifar10",
+        gaussian_blur: bool = True,
+        jitter_strength: float = 1.0,
+        normalize=None,
     ) -> None:
+        self.input_transform = LocalTransform(
+            input_height=input_height,
+            jitter_strength=jitter_strength,
+            gaussian_blur=gaussian_blur,
+            normalize=normalize,
+        )
         self.original_transform = OriginalTransform(
             dataset=dataset, normalize=normalize
         )
@@ -139,8 +150,11 @@ class EvalTransform:
         )
 
     def __call__(self, x):
-        out = self.original_transform(x)
-        return out, out, self.finetune_transform(x)
+        return (
+            self.input_transform(x),
+            self.original_transform(x),
+            self.finetune_transform(x),
+        )
 
 
 class ProjectionEncoder(nn.Module):
@@ -514,7 +528,11 @@ if __name__ == "__main__":
     )
 
     dm.val_transforms = EvalTransform(
-        input_height=args.input_height, dataset=args.dataset, normalize=normalization,
+        input_height=args.input_height,
+        dataset=args.dataset,
+        gaussian_blur=args.gaussian_blur,
+        jitter_strength=args.jitter_strength,
+        normalize=normalization,
     )
 
     # model init
