@@ -306,6 +306,11 @@ class ResNetDecoder(nn.Module):
         # interpolate after linear layer using scale factor
         self.upscale1 = Interpolate(size=input_height // self.upscale_factor)
 
+        """
+        # output 10 * num_mixtures for discretized likelihood
+        num_mixtures = 10
+        out_channels = 10 * num_mixtures
+        """
         self.conv1 = nn.Conv2d(
             64 * block.expansion, 3, kernel_size=3, stride=1, padding=1, bias=False
         )

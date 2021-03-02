@@ -1,5 +1,4 @@
 import torchvision.transforms as transforms
-import cv2
 import numpy as np
 
 
@@ -32,7 +31,7 @@ class LocalTransform:
                 kernel_size += 1
 
             data_transforms.append(
-                transforms.RandomApply([GaussianBlur(kernel_size=kernel_size)], p=0.5)
+                transforms.RandomApply([transforms.GaussianBlur(kernel_size=kernel_size)], p=0.5)
             )
 
         data_transforms = transforms.Compose(data_transforms)
@@ -125,23 +124,3 @@ class OriginalTransform(LinearEvalValidTransform):
     """
 
     pass
-
-
-class GaussianBlur:
-    # Implements Gaussian blur as described in the SimCLR paper
-    def __init__(self, kernel_size, min_sigma=0.1, max_sigma=2.0):
-        self.min = min_sigma
-        self.max = max_sigma
-        # kernel size is set to be 10% of the image height/width
-        self.kernel_size = kernel_size
-
-    def __call__(self, sample):
-        sample = np.array(sample)
-
-        # blur the image with a 50% chance
-        prob = np.random.random_sample()
-
-        sigma = (self.max - self.min) * np.random.random_sample() + self.min
-        sample = cv2.GaussianBlur(sample, (self.kernel_size, self.kernel_size), sigma)
-
-        return sample

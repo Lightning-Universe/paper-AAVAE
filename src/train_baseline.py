@@ -8,12 +8,10 @@ import torchvision.transforms as T
 import numpy as np
 from torch.optim import Adam
 import math
-from typing import Union, List, Optional, Sequence, Dict, Iterator, Tuple, Callable
 
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as FM
 from pytorch_lightning.callbacks import LearningRateMonitor
-from pytorch_lightning.callbacks import ModelCheckpoint
 
 from pl_bolts.callbacks import LatentDimInterpolator
 from pl_bolts.optimizers import LinearWarmupCosineAnnealingLR
@@ -23,7 +21,6 @@ from pl_bolts.transforms.dataset_normalizations import (
     stl10_normalization,
     imagenet_normalization,
 )
-
 from resnet import (
     resnet18_encoder,
     resnet18_decoder,
@@ -39,9 +36,18 @@ from transforms import (
 )
 from online_eval import OnlineFineTuner
 
-
 encoders = {"resnet18": resnet18_encoder, "resnet50": resnet50_encoder}
 decoders = {"resnet18": resnet18_decoder, "resnet50": resnet50_decoder}
+
+
+def discretized_logistic(mean, logscale, sample, binsize=1 / 256):
+    mean = mean.clamp(min=-0.5 + 1 / 512, max=0.5 - 1 / 512)
+    scale = torch.exp(logscale)
+    sample = (torch.floor(sample / binsize) * binsize - mean) / scale
+    log_pxz = torch.log(
+        torch.sigmoid(sample + binsize / scale) - torch.sigmoid(sample) + 1e-7
+    )
+    return log_pxz.sum(dim=(1, 2, 3))
 
 
 def gaussian_likelihood(mean, logscale, sample):
@@ -169,7 +175,6 @@ class VAE(pl.LightningModule):
         gpus=1,
         batch_size=32,
 	    kl_warmup_epochs=1,
-        kl_coeff=0.1,
         h_dim=2048,
         latent_dim=128,
         learning_rate=1e-4,
@@ -180,17 +185,18 @@ class VAE(pl.LightningModule):
         dataset="cifar10",
         max_epochs=100,
         warmup_epochs=10,
+        analytic=False,
+        val_samples=1,
         cosine_decay=0,
         linear_decay=0,
         learn_scale=1,
-        weight_decay=1e-6,
-        momentum=0.9,
         **kwargs,
     ):
         super(VAE, self).__init__()
         self.save_hyperparameters()
 
         self.input_height = input_height
+        self.analytic = analytic
 
         self.h_dim = h_dim
         self.latent_dim = latent_dim
@@ -200,9 +206,6 @@ class VAE(pl.LightningModule):
         self.maxpool1 = maxpool1
 
         self.learning_rate = learning_rate
-        self.momentum = momentum
-        self.weight_decay = weight_decay
-
         self.max_epochs = max_epochs
         self.warmup_epochs = warmup_epochs
         self.cosine_decay = cosine_decay
@@ -211,15 +214,13 @@ class VAE(pl.LightningModule):
         self.gpus = gpus
         self.batch_size = batch_size
         self.num_samples = num_samples
+        self.val_samples = val_samples
 
         global_batch_size = (
             self.gpus * self.batch_size if self.gpus > 0 else self.batch_size
         )
         self.train_iters_per_epoch = self.num_samples // global_batch_size
-
-        self.kl_coeff = kl_coeff
-        self.kl_warmup_epochs = kl_warmup_epochs
-        self.kl_warmup = kl_warmup(self.train_iters_per_epoch * self.kl_warmup_epochs)
+        self.kl_warmup = kl_warmup(self.train_iters_per_epoch * kl_warmup_epochs)
 
         self.in_channels = 3
 
@@ -231,14 +232,12 @@ class VAE(pl.LightningModule):
         self.log_scale = nn.Parameter(torch.Tensor([0.0]))
         self.log_scale.requires_grad = bool(learn_scale)
 
-        self.cosine_similarity = nn.CosineSimilarity(dim=1, eps=1e-6)
-
         self.projection = ProjectionEncoder(
             input_dim=self.h_dim, hidden_dim=self.h_dim, output_dim=self.latent_dim
         )
 
     def forward(self, x):
-        return self.encoder(x)
+        return self.decoder(x)
 
     def sample(self, z_mu, z_var, eps=1e-6):
         """
@@ -272,116 +271,100 @@ class VAE(pl.LightningModule):
         """
         z is (batch, dim)
         """
+        log_pz = p.log_prob(z)
+        log_qz = q.log_prob(z)
+
         kl = torch.distributions.kl.kl_divergence(q, p).sum(dim=-1)
         log_pz = p.log_prob(z).sum(dim=-1)
         log_qz = q.log_prob(z).sum(dim=-1)
         return kl, log_pz, log_qz
 
-    def step(self, batch, is_val):
+    def step(self, batch, samples=1):
         if self.dataset == "stl10":
             unlabeled_batch = batch[0]
             batch = unlabeled_batch
 
         (x, original, _), y = batch
-
-        if self.kl_warmup_epochs == -1:
-            kl_coeff = self.kl_coeff
-        else:
-            kl_coeff = self.kl_warmup(self.trainer.global_step)
+        kl_coeff = self.kl_warmup(self.trainer.global_step)
 
         batch_size, c, h, w = x.shape
         pixels = c * h * w
 
-        # get representation of original image
-        with torch.no_grad():
-            x_original = self.encoder(original).clone().detach()
-            mu_orig, log_var_orig = self.projection(x_original)
-
         x_enc = self.encoder(x)
         mu, log_var = self.projection(x_enc)
 
-        # cosine similarity between view and original
-        cos_sim = self.cosine_similarity(mu_orig, mu)
+        log_pzs = []
+        log_qzs = []
+        log_pxzs = []
+        kls = []
+        elbos = []
+        losses = []
 
-        p, q, z = self.sample(mu, log_var)
+        # NOTE: doing a for loop instead of tile to support arbitrary number of samples
+        # without decreasing batch size.
+        for _ in range(samples):
+            p, q, z = self.sample(mu, log_var)
 
-        # this computes log_pz, log_qz and log_pxz @ mu
-        if is_val:
-            with torch.no_grad():
-                z = mu.clone().detach()   # replace z with mu
+            if self.analytic:
+                kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
+            else:
+                kl, log_pz, log_qz = self.kl_divergence_mc(p, q, z)
 
-        kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
+            x_hat = self.decoder(z)
 
-        x_hat = self.decoder(z)
-        log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
+            log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
 
-        # mean
-        elbo = (kl - log_pxz).mean()
-        loss = (kl_coeff * kl - log_pxz).mean()
+            elbo = kl - log_pxz
+            loss = kl_coeff * kl - log_pxz
 
-        # (batch, 1) dimension
-        samples = 1
-        log_pz = log_pz.unsqueeze(1)
-        log_qz = log_qz.unsqueeze(1)
-        log_pxz = log_pxz.unsqueeze(1)
+            # all these are (batch) dim
+            log_qzs.append(log_qz)
+            log_pzs.append(log_pz)
+            log_pxzs.append(log_pxz)
+            kls.append(kl)
+            elbos.append(elbo)
+            losses.append(loss)
+
+        # all of these will be of shape (batch, samples)
+        log_pz = torch.stack(log_pzs, dim=1)
+        log_qz = torch.stack(log_qzs, dim=1)
+        log_pxz = torch.stack(log_pxzs, dim=1)
+        kl = torch.stack(kls, dim=1)
+
+        elbo = torch.stack(elbos, dim=1).mean()
+        loss = torch.stack(losses, dim=1).mean()
 
         # marginal likelihood, logsumexp over sample dim, mean over batch dim
         log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=1).mean(dim=0) - np.log(
             samples
         )
+        l_g_hat = log_px.sum()
+        elbo += l_g_hat # scaling param add
         bpd = -log_px / (pixels * np.log(2))  # need log_px in base 2
 
         logs = {
             "kl": kl.mean(),
 	        "kl_coeff": kl_coeff,
             "elbo": elbo,
-            "loss": loss,
             "bpd": bpd,
-            "cos_sim": cos_sim.mean(),
             "log_pxz": log_pxz.mean(),
-            "log_pz": log_pz.mean(),
-            "log_pxz+log_pz": (log_pxz + log_pz).mean(),
             "log_px": log_px,
             "log_scale": self.log_scale.item(),
         }
 
-        return loss, logs
+        return loss, logs, z
 
     def training_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, is_val=False)
+        loss, logs, z = self.step(batch, 1)  # use only one sample for train
         self.log_dict({f"train_{k}": v for k, v in logs.items()})
-
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, is_val=True)
+        loss, logs, z = self.step(batch, self.val_samples)
         self.log_dict({f"val_{k}": v for k, v in logs.items()})
-
         return loss
 
-    def exclude_from_wt_decay(
-        self,
-        named_params: Iterator[Tuple[str, torch.Tensor]],
-        weight_decay: float,
-        skip_list: List[str] = ['bias', 'bn'],
-    ) -> List[Dict]:
-        params = []
-        excluded_params = []
-
-        for name, param in named_params:
-            if not param.requires_grad:
-                continue
-            elif any(layer_name in name for layer_name in skip_list):
-                excluded_params.append(param)
-            else:
-                params.append(param)
-
-        return [{'params': params, 'weight_decay': weight_decay},
-                {'params': excluded_params, 'weight_decay': 0.}]
-
     def configure_optimizers(self):
-        # params = self.exclude_from_wt_decay(self.named_parameters(), weight_decay=self.weight_decay)
-        # optimizer = Adam(params, lr=self.learning_rate)
         optimizer = Adam(self.parameters(), lr=self.learning_rate)
 
         if self.warmup_epochs < 0:
@@ -419,16 +402,17 @@ if __name__ == "__main__":
     parser.add_argument("--maxpool1", type=bool, default=True)
 
     # vae params
-    parser.add_argument('--kl_warmup_epochs', type=float, default=-1)  # set to -1 to use a fixed coeff
-    parser.add_argument('--kl_coeff', type=float, default=0.1)
+    parser.add_argument('--kl_warmup_epochs', type=float, default=10)
     parser.add_argument("--latent_dim", type=int, default=128)
     parser.add_argument("--learn_scale", type=int, default=1)
+    # use analytic KL
+    parser.add_argument("--analytic", type=int, default=0)
+
+    # number of samples to use for validation
+    parser.add_argument("--val_samples", type=int, default=1)
 
     # optimizer param
     parser.add_argument("--learning_rate", type=float, default=1e-3)
-    parser.add_argument("--momentum", type=float, default=0.9)
-    parser.add_argument("--weight_decay", type=float, default=1e-6)
-
     parser.add_argument("--warmup_epochs", type=int, default=10)
     parser.add_argument("--max_epochs", type=int, default=800)
     parser.add_argument("--cosine_decay", type=int, default=0)
@@ -514,7 +498,7 @@ if __name__ == "__main__":
     )
 
     dm.val_transforms = EvalTransform(
-        input_height=args.input_height, dataset=args.dataset, normalize=normalization,
+        input_height=args.input_height, dataset=args.dataset, normalize=normalization
     )
 
     # model init
@@ -526,15 +510,25 @@ if __name__ == "__main__":
         dataset=args.dataset,
     )
 
+    interpolator = LatentDimInterpolator(
+        interpolate_epoch_interval=20, range_start=-3, range_end=3, normalize=True
+    )
+
     lr_monitor = LearningRateMonitor(logging_interval="step")
-    model_checkpoint = ModelCheckpoint(save_last=True, save_top_k=1, monitor='val_loss')  # for now let's monitor elbo
 
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
         gpus=args.gpus,
         distributed_backend="ddp" if args.gpus > 1 else None,
         precision=16 if args.fp16 else 32,
-        callbacks=[online_evaluator, lr_monitor, model_checkpoint],
+        callbacks=[online_evaluator, interpolator, lr_monitor],
     )
 
     trainer.fit(model, dm)
+
+"""
+TODO:
+
+1. convert from orig -> orig
+2. add metrics Cho mentioned
+"""
