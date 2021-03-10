@@ -1,8 +1,6 @@
 scipy==1.4.1
-torchvision==0.7.0
-torch==1.6.0
+torchvision==0.8.0
+torch==1.8.0
 numpy==1.18.1
-pytorch-lightning==1.1.4
-opencv-python-headless
+pytorch-lightning==1.2.2
 sklearn
-einops==0.3.0

@@ -199,6 +199,7 @@ class VAE(pl.LightningModule):
         learn_scale=1,
         weight_decay=1e-6,
         momentum=0.9,
+        log_scale=0.,
         **kwargs,
     ):
         super(VAE, self).__init__()
@@ -242,7 +243,8 @@ class VAE(pl.LightningModule):
             self.latent_dim, self.input_height, self.first_conv, self.maxpool1
         )
 
-        self.log_scale = nn.Parameter(torch.Tensor([0.0]))
+        # start log-scale with a specific value
+        self.log_scale = nn.Parameter(torch.Tensor([log_scale]))
         self.log_scale.requires_grad = bool(learn_scale)
 
         self.cosine_similarity = nn.CosineSimilarity(dim=1, eps=1e-6)
@@ -291,7 +293,7 @@ class VAE(pl.LightningModule):
         log_qz = q.log_prob(z).sum(dim=-1)
         return kl, log_pz, log_qz
 
-    def step(self, batch, is_val):
+    def step(self, batch, is_val, samples=1):
         if self.dataset == "stl10":
             unlabeled_batch = batch[0]
             batch = unlabeled_batch
@@ -362,13 +364,13 @@ class VAE(pl.LightningModule):
         return loss, logs
 
     def training_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, is_val=False)
+        loss, logs = self.step(batch, is_val=False, samples=1)
         self.log_dict({f"train_{k}": v for k, v in logs.items()})
 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, is_val=True)
+        loss, logs = self.step(batch, is_val=True, samples=)
         self.log_dict({f"val_{k}": v for k, v in logs.items()})
 
         return loss
@@ -437,6 +439,7 @@ if __name__ == "__main__":
     parser.add_argument('--kl_warmup_epochs', type=float, default=-1)  # set to -1 to use a fixed coeff
     parser.add_argument('--kl_coeff', type=float, default=0.1)
     parser.add_argument("--latent_dim", type=int, default=128)
+    parser.add_argument("--log_scale", type=float, default=0.)
     parser.add_argument("--learn_scale", type=int, default=1)
 
     # optimizer param
