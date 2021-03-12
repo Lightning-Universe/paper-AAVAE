@@ -81,14 +81,6 @@ def linear_warmup_decay(warmup_steps, total_steps, cosine=True, linear=False):
     return fn
 
 
-def kl_warmup(warmup_steps):
-    def fn(step):
-        if step < warmup_steps:
-            return float(step) / float(max(1, warmup_steps))
-        return 1.0
-    return fn
-
-
 class TrainTransform:
     """
     TrainTransform returns a transformed image along with the original
@@ -182,7 +174,6 @@ class VAE(pl.LightningModule):
         num_samples,
         gpus=1,
         batch_size=32,
-	    kl_warmup_epochs=1,
         kl_coeff=0.1,
         h_dim=2048,
         latent_dim=128,
@@ -197,6 +188,7 @@ class VAE(pl.LightningModule):
         cosine_decay=0,
         linear_decay=0,
         learn_scale=1,
+        val_samples=1,
         weight_decay=1e-6,
         momentum=0.9,
         log_scale=0.,
@@ -226,6 +218,7 @@ class VAE(pl.LightningModule):
         self.gpus = gpus
         self.batch_size = batch_size
         self.num_samples = num_samples
+        self.val_samples = val_samples
 
         global_batch_size = (
             self.gpus * self.batch_size if self.gpus > 0 else self.batch_size
@@ -233,9 +226,6 @@ class VAE(pl.LightningModule):
         self.train_iters_per_epoch = self.num_samples // global_batch_size
 
         self.kl_coeff = kl_coeff
-        self.kl_warmup_epochs = kl_warmup_epochs
-        self.kl_warmup = kl_warmup(self.train_iters_per_epoch * self.kl_warmup_epochs)
-
         self.in_channels = 3
 
         self.encoder = encoders[encoder](self.first_conv, self.maxpool1)
@@ -293,17 +283,12 @@ class VAE(pl.LightningModule):
         log_qz = q.log_prob(z).sum(dim=-1)
         return kl, log_pz, log_qz
 
-    def step(self, batch, is_val, samples=1):
+    def step(self, batch, samples=1):
         if self.dataset == "stl10":
             unlabeled_batch = batch[0]
             batch = unlabeled_batch
 
         (x, original, _), y = batch
-
-        if self.kl_warmup_epochs == -1:
-            kl_coeff = self.kl_coeff
-        else:
-            kl_coeff = self.kl_warmup(self.trainer.global_step)
 
         batch_size, c, h, w = x.shape
         pixels = c * h * w
@@ -312,34 +297,64 @@ class VAE(pl.LightningModule):
         with torch.no_grad():
             x_original = self.encoder(original).clone().detach()
             mu_orig, log_var_orig = self.projection(x_original)
+            _, q_orig, z_orig = self.sample(mu_orig, log_var_orig)
 
         x_enc = self.encoder(x)
         mu, log_var = self.projection(x_enc)
 
-        # cosine similarity between view and original
-        cos_sim = self.cosine_similarity(mu_orig, mu)
+        # cosine similarity between view and original mu vals
+        cos_sim = self.cosine_similarity(mu_orig, mu).mean()
 
-        p, q, z = self.sample(mu, log_var)
+        log_pzs = []
+        log_qzs = []
+        log_pxzs = []
 
-        # this computes log_pz, log_qz and log_pxz @ mu
-        if is_val:
-            with torch.no_grad():
-                z = mu.clone().detach()   # replace z with mu
+        kls = []
+        elbos = []
+        losses = []
 
-        kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
+        sampled_cos_sims = []
+        kl_imgs = []
 
-        x_hat = self.decoder(z)
-        log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
+        for _ in range(samples):
+            p, q, z = self.sample(mu, log_var)
+            kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
 
-        # mean
-        elbo = (kl - log_pxz).mean()
-        loss = (kl_coeff * kl - log_pxz).mean()
+            # compute cosine sim between sampled vector and original
+            sampled_cos_sim = self.cosine_similarity(mu_orig, z)
 
-        # (batch, 1) dimension
-        samples = 1
-        log_pz = log_pz.unsqueeze(1)
-        log_qz = log_qz.unsqueeze(1)
-        log_pxz = log_pxz.unsqueeze(1)
+            # compute kl between orig img and augmented img distributions
+            kl_img = torch.distributions.kl.kl_divergence(q, q_orig).sum(dim=-1)
+
+            x_hat = self.decoder(z)
+            log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
+
+            # mean
+            elbo = kl - log_pxz
+            loss = self.kl_coeff * kl - log_pxz
+
+            log_pzs.append(log_pz)
+            log_qzs.append(log_qz)
+            log_pxzs.append(log_pxz)
+
+            kls.append(kl)
+            elbos.append(elbo)
+            losses.append(loss)
+
+            sampled_cos_sims.append(sampled_cos_sim)
+            kl_imgs.append(kl_img)
+
+        # all of these will be of shape [batch, samples, ... ]
+        log_pz = torch.stack(log_pzs, dim=1)
+        log_qz = torch.stack(log_qzs, dim=1)
+        log_pxz = torch.stack(log_pxzs, dim=1)
+
+        kl = torch.stack(kls, dim=1)
+        elbo = torch.stack(elbos, dim=1).mean()
+        loss = torch.stack(losses, dim=1).mean()
+
+        sampled_cos_sim = torch.stack(sampled_cos_sims, dim=1).mean()
+        kl_img = torch.stack(kl_imgs, dim=1)
 
         # marginal likelihood, logsumexp over sample dim, mean over batch dim
         log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=1).mean(dim=0) - np.log(
@@ -349,14 +364,14 @@ class VAE(pl.LightningModule):
 
         logs = {
             "kl": kl.mean(),
-	        "kl_coeff": kl_coeff,
             "elbo": elbo,
             "loss": loss,
             "bpd": bpd,
-            "cos_sim": cos_sim.mean(),
+            "mean_cos_sim": cos_sim,
+            "sampled_cos_sim": sampled_cos_sim,
+            "kl_img": kl_img.mean(),
             "log_pxz": log_pxz.mean(),
             "log_pz": log_pz.mean(),
-            "log_pxz+log_pz": (log_pxz + log_pz).mean(),
             "log_px": log_px,
             "log_scale": self.log_scale.item(),
         }
@@ -364,13 +379,13 @@ class VAE(pl.LightningModule):
         return loss, logs
 
     def training_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, is_val=False, samples=1)
+        loss, logs = self.step(batch, samples=1)
         self.log_dict({f"train_{k}": v for k, v in logs.items()})
 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, is_val=True, samples=)
+        loss, logs = self.step(batch, samples=self.val_samples)
         self.log_dict({f"val_{k}": v for k, v in logs.items()})
 
         return loss
@@ -436,11 +451,13 @@ if __name__ == "__main__":
     parser.add_argument("--maxpool1", type=bool, default=True)
 
     # vae params
-    parser.add_argument('--kl_warmup_epochs', type=float, default=-1)  # set to -1 to use a fixed coeff
     parser.add_argument('--kl_coeff', type=float, default=0.1)
     parser.add_argument("--latent_dim", type=int, default=128)
     parser.add_argument("--log_scale", type=float, default=0.)
     parser.add_argument("--learn_scale", type=int, default=1)
+
+    # number of samples to use for validation
+    parser.add_argument("--val_samples", type=int, default=1)
 
     # optimizer param
     parser.add_argument("--learning_rate", type=float, default=1e-3)
@@ -560,3 +577,9 @@ if __name__ == "__main__":
     )
 
     trainer.fit(model, dm)
+
+"""
+TODO:
+1. grad plotting
+2. grad clipping
+"""
