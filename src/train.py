@@ -470,7 +470,6 @@ if __name__ == "__main__":
     parser.add_argument("--linear_decay", type=int, default=0)
 
     # training params
-    parser.add_argument("--gpus", type=int, default=1)
     parser.add_argument("--fp16", action="store_true")
 
     # datamodule params
@@ -570,7 +569,7 @@ if __name__ == "__main__":
 
     trainer = pl.Trainer(
         max_epochs=args.max_epochs,
-        gpus=args.gpus,
+        gpus=8,
         distributed_backend="ddp" if args.gpus > 1 else None,
         precision=16 if args.fp16 else 32,
         callbacks=[online_evaluator, lr_monitor, model_checkpoint],
