@@ -1,0 +1,17 @@
+compute:
+
+  provider:
+    credentials: cc-8cfgh    # Replace this with your credential ID
+    region: us-east-1
+    vendor: aws
+
+  train:
+    gpus: 8
+    instance: p3.16xlarge
+    max_nodes: 30
+    disk_size: 200
+
+    # Pass one line per command.
+    actions:
+      on_image_build:
+        - pip install git+https://github.com/PytorchLightning/pytorch-lightning-bolts.git@exps --upgrade
