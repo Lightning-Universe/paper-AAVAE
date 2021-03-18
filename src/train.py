@@ -582,4 +582,5 @@ if __name__ == "__main__":
 TODO:
 1. grad plotting
 2. grad clipping
+3. Adam and AdamW (with and without weight decay of 0.1, exclude bn, bias)
 """

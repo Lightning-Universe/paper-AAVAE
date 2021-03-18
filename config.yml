@@ -10,8 +10,12 @@ compute:
     instance: p3.16xlarge
     max_nodes: 30
     disk_size: 200
+    datastore_name: dummy
+    datastore_version: '1'
+    datastore_mount_dir: '/opt/datastore'
 
     # Pass one line per command.
     actions:
       on_image_build:
         - pip install git+https://github.com/PytorchLightning/pytorch-lightning-bolts.git@exps --upgrade
+        - pip install git+https://github.com/PyTorchLightning/pytorch-lightning.git@master --upgrade
