@@ -3,3 +3,5 @@ torchvision==0.9.0
 torch==1.8.0
 numpy==1.18.1
 sklearn
+git+https://github.com/PytorchLightning/pytorch-lightning-bolts.git@exps
+git+https://github.com/PyTorchLightning/pytorch-lightning.git@master
