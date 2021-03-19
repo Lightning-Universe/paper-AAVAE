@@ -192,6 +192,7 @@ class VAE(pl.LightningModule):
         weight_decay=1e-6,
         momentum=0.9,
         log_scale=0.,
+        exclude_bn_bias=False,
         **kwargs,
     ):
         super(VAE, self).__init__()
@@ -209,6 +210,7 @@ class VAE(pl.LightningModule):
         self.learning_rate = learning_rate
         self.momentum = momentum
         self.weight_decay = weight_decay
+        self.exclude_bn_bias = exclude_bn_bias
 
         self.max_epochs = max_epochs
         self.warmup_epochs = warmup_epochs
@@ -411,9 +413,12 @@ class VAE(pl.LightningModule):
                 {'params': excluded_params, 'weight_decay': 0.}]
 
     def configure_optimizers(self):
-        # params = self.exclude_from_wt_decay(self.named_parameters(), weight_decay=self.weight_decay)
-        # optimizer = Adam(params, lr=self.learning_rate)
-        optimizer = Adam(self.parameters(), lr=self.learning_rate)
+        if self.exclude_bn_bias:
+            params = self.exclude_from_wt_decay(self.named_parameters(), weight_decay=self.weight_decay)
+        else:
+            params = self.parameters()
+
+        optimizer = Adam(params, lr=self.learning_rate, weight_decay=self.weight_decay)
 
         if self.warmup_epochs < 0:
             # no lr schedule
@@ -463,6 +468,7 @@ if __name__ == "__main__":
     parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=1e-6)
+    parser.add_argument("--exclude_bn_bias", action="store_true")
 
     parser.add_argument("--warmup_epochs", type=int, default=10)
     parser.add_argument("--max_epochs", type=int, default=800)
@@ -582,5 +588,4 @@ if __name__ == "__main__":
 TODO:
 1. grad plotting
 2. grad clipping
-3. Adam and AdamW (with and without weight decay of 0.1, exclude bn, bias)
 """
