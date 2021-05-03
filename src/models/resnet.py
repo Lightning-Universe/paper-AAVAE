@@ -1,69 +1,56 @@
+"""
+ResNet encoder adapted from: https://github.com/facebookresearch/swav/blob/master/src/resnet50.py
+"""
 import torch
-from torch import nn
-import torch.nn.functional as F
+import torch.nn as nn
+
+from torch import Tensor
+from typing import Type, Any, Callable, Union, List, Optional
 
 
-class Interpolate(nn.Module):
-    """nn.Module wrapper for F.interpolate"""
-
-    def __init__(self, size=None, scale_factor=None):
-        super().__init__()
-        self.size, self.scale_factor = size, scale_factor
-
-    def forward(self, x):
-        return F.interpolate(x, size=self.size, scale_factor=self.scale_factor)
-
-
-def conv3x3(in_planes, out_planes, stride=1):
+def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv2d:
     """3x3 convolution with padding"""
-    return nn.Conv2d(
-        in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False
-    )
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
-def conv1x1(in_planes, out_planes, stride=1):
+def conv1x1(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv2d:
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
-def resize_conv3x3(in_planes, out_planes, scale=1):
-    """upsample + 3x3 convolution with padding to avoid checkerboard artifact"""
-    if scale == 1:
-        return conv3x3(in_planes, out_planes)
-    else:
-        return nn.Sequential(
-            Interpolate(scale_factor=scale), conv3x3(in_planes, out_planes)
-        )
+class BasicBlock(nn.Module):
+    expansion: int = 1
+    __constants__ = ["downsample"]
 
-
-def resize_conv1x1(in_planes, out_planes, scale=1):
-    """upsample + 1x1 convolution with padding to avoid checkerboard artifact"""
-    if scale == 1:
-        return conv1x1(in_planes, out_planes)
-    else:
-        return nn.Sequential(
-            Interpolate(scale_factor=scale), conv1x1(in_planes, out_planes)
-        )
-
-
-class EncoderBlock(nn.Module):
-    """
-    ResNet block, copied from
-    https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py#L35
-    """
-
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super().__init__()
+    def __init__(
+        self,
+        inplanes: int,
+        planes: int,
+        stride: int = 1,
+        downsample: Optional[nn.Module] = None,
+        groups: int = 1,
+        base_width: int = 64,
+        dilation: int = 1,
+        norm_layer: Optional[Callable[..., nn.Module]] = None
+    ) -> None:
+        super(BasicBlock, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        if groups != 1 or base_width != 64:
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
+        if dilation > 1:
+            raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
+        # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
+        self.bn1 = norm_layer(planes)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.bn2 = norm_layer(planes)
         self.downsample = downsample
+        self.stride = stride
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         identity = x
 
         out = self.conv1(x)
@@ -82,28 +69,43 @@ class EncoderBlock(nn.Module):
         return out
 
 
-class EncoderBottleneck(nn.Module):
-    """
-    ResNet bottleneck, copied from
-    https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py#L75
-    """
+class Bottleneck(nn.Module):
+    # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
+    # while original implementation places the stride at the first 1x1 convolution(self.conv1)
+    # according to "Deep residual learning for image recognition"https://arxiv.org/abs/1512.03385.
+    # This variant is also known as ResNet V1.5 and improves accuracy according to
+    # https://ngc.nvidia.com/catalog/model-scripts/nvidia:resnet_50_v1_5_for_pytorch.
 
-    expansion = 4
+    expansion: int = 4
+    __constants__ = ["downsample"]
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super().__init__()
-        width = planes  # this needs to change if we want wide resnets
+    def __init__(
+        self,
+        inplanes: int,
+        planes: int,
+        stride: int = 1,
+        downsample: Optional[nn.Module] = None,
+        groups: int = 1,
+        base_width: int = 64,
+        dilation: int = 1,
+        norm_layer: Optional[Callable[..., nn.Module]] = None
+    ) -> None:
+        super(Bottleneck, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        width = int(planes * (base_width / 64.)) * groups
+        # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width)
-        self.bn1 = nn.BatchNorm2d(width)
-        self.conv2 = conv3x3(width, width, stride)
-        self.bn2 = nn.BatchNorm2d(width)
+        self.bn1 = norm_layer(width)
+        self.conv2 = conv3x3(width, width, stride, groups, dilation)
+        self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
+        self.bn3 = norm_layer(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         identity = x
 
         out = self.conv1(x)
@@ -122,141 +124,140 @@ class EncoderBottleneck(nn.Module):
 
         out += identity
         out = self.relu(out)
-        return out
-
-
-class DecoderBlock(nn.Module):
-    """
-    ResNet block, but convs replaced with resize convs, and channel increase is in
-    second conv, not first
-    """
-
-    expansion = 1
-
-    def __init__(self, inplanes, planes, scale=1, upsample=None):
-        super().__init__()
-        self.conv1 = resize_conv3x3(inplanes, inplanes)
-        self.bn1 = nn.BatchNorm2d(inplanes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = resize_conv3x3(inplanes, planes, scale)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.upsample = upsample
-
-    def forward(self, x):
-        identity = x
-
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-
-        if self.upsample is not None:
-            identity = self.upsample(x)
-
-        out += identity
-        out = self.relu(out)
 
         return out
 
 
-class DecoderBottleneck(nn.Module):
-    """
-    ResNet bottleneck, but convs replaced with resize convs
-    """
+class ResNet(nn.Module):
 
-    expansion = 4
+    def __init__(
+        self,
+        block: Type[Union[BasicBlock, Bottleneck]],
+        layers: List[int],
+        zero_init_residual: bool = False,
+        groups: int = 1,
+        widen: int = 1,
+        width_per_group: int = 64,
+        replace_stride_with_dilation: Optional[List[bool]] = None,
+        norm_layer: Optional[Callable[..., nn.Module]] = None,
+        first_conv3x3: bool = False,
+        remove_first_maxpool: bool = False,
+    ) -> None:
 
-    def __init__(self, inplanes, planes, scale=1, upsample=None):
-        super().__init__()
-        width = planes  # this needs to change if we want wide resnets
-        self.conv1 = resize_conv1x1(inplanes, width)
-        self.bn1 = nn.BatchNorm2d(width)
-        self.conv2 = resize_conv3x3(width, width, scale)
-        self.bn2 = nn.BatchNorm2d(width)
-        self.conv3 = conv1x1(width, planes * self.expansion)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.upsample = upsample
-        self.scale = scale
+        super(ResNet, self).__init__()
 
-    def forward(self, x):
-        identity = x
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
 
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-
-        out = self.conv3(out)
-        out = self.bn3(out)
-
-        if self.upsample is not None:
-            identity = self.upsample(x)
-
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-class ResNetEncoder(nn.Module):
-    def __init__(self, block, layers, first_conv=False, maxpool1=False):
-        super().__init__()
-
-        self.inplanes = 64
-        self.first_conv = first_conv
-        self.maxpool1 = maxpool1
-
-        if self.first_conv:
-            self.conv1 = nn.Conv2d(
-                3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False
+        self.inplanes = width_per_group * widen
+        self.dilation = 1
+        if replace_stride_with_dilation is None:
+            # each element in the tuple indicates if we should replace
+            # the 2x2 stride with a dilated convolution instead
+            replace_stride_with_dilation = [False, False, False]
+        if len(replace_stride_with_dilation) != 3:
+            raise ValueError(
+                "replace_stride_with_dilation should be None "
+                "or a 3-element tuple, got {}".format(replace_stride_with_dilation)
             )
-        else:
-            self.conv1 = nn.Conv2d(
-                3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False
-            )
+        self.groups = groups
+        self.base_width = width_per_group
 
-        self.bn1 = nn.BatchNorm2d(self.inplanes)
+        num_out_filters = width_per_group * widen
+
+        if first_conv3x3:
+            self.conv1 = nn.Conv2d(3, num_out_filters, kernel_size=3, stride=1, padding=1, bias=False)
+        else:
+            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+
+        self.bn1 = norm_layer(num_out_filters)
         self.relu = nn.ReLU(inplace=True)
 
-        if self.maxpool1:
-            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        else:
+        if remove_first_maxpool:
             self.maxpool = nn.MaxPool2d(kernel_size=1, stride=1)
+        else:
+            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.layer1 = self._make_layer(block, num_out_filters, layers[0])
+        num_out_filters *= 2
+        self.layer2 = self._make_layer(
+            block, num_out_filters, layers[1], stride=2, dilate=replace_stride_with_dilation[0]
+        )
+        num_out_filters *= 2
+        self.layer3 = self._make_layer(
+            block, num_out_filters, layers[2], stride=2, dilate=replace_stride_with_dilation[1]
+        )
+        num_out_filters *= 2
+        self.layer4 = self._make_layer(
+            block, num_out_filters, layers[3], stride=2, dilate=replace_stride_with_dilation[2]
+        )
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.out_dim = 512 * block.expansion
 
-    def _make_layer(self, block, planes, blocks, stride=1):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+        # Zero-initialize the last BN in each residual branch,
+        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
+        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
+        if zero_init_residual:
+            for m in self.modules():
+                if isinstance(m, Bottleneck):
+                    nn.init.constant_(m.bn3.weight, 0)
+                elif isinstance(m, BasicBlock):
+                    nn.init.constant_(m.bn2.weight, 0)
+
+    def _make_layer(self, block: Type[Union[BasicBlock, Bottleneck]], planes: int, blocks: int,
+                    stride: int = 1, dilate: bool = False) -> nn.Sequential:
+        norm_layer = self._norm_layer
         downsample = None
+        previous_dilation = self.dilation
+        if dilate:
+            self.dilation *= stride
+            stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, stride),
-                nn.BatchNorm2d(planes * block.expansion),
+                norm_layer(planes * block.expansion),
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
+        layers.append(
+            block(
+                self.inplanes,
+                planes,
+                stride,
+                downsample,
+                self.groups,
+                self.base_width,
+                previous_dilation,
+                norm_layer,
+            )
+        )
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
+            layers.append(
+                block(
+                    self.inplanes,
+                    planes,
+                    groups=self.groups,
+                    base_width=self.base_width,
+                    dilation=self.dilation,
+                    norm_layer=norm_layer,
+                )
+            )
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
-
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -264,139 +265,21 @@ class ResNetEncoder(nn.Module):
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
+
         return x
 
 
-class ResNetDecoder(nn.Module):
-    """
-    Resnet in reverse order
-    """
-
-    def __init__(
-        self, block, layers, latent_dim, input_height, first_conv=False, maxpool1=False
-    ):
-        super().__init__()
-
-        self.expansion = block.expansion
-        self.inplanes = 512 * block.expansion
-        self.first_conv = first_conv
-        self.maxpool1 = maxpool1
-        self.input_height = input_height
-
-        self.upscale_factor = 8
-
-        self.linear = nn.Linear(latent_dim, self.inplanes * 4 * 4)
-
-        self.layer1 = self._make_layer(block, 256, layers[0], scale=2)
-        self.layer2 = self._make_layer(block, 128, layers[1], scale=2)
-        self.layer3 = self._make_layer(block, 64, layers[2], scale=2)
-
-        if self.maxpool1:
-            self.layer4 = self._make_layer(block, 64, layers[3], scale=2)
-            self.upscale_factor *= 2
-        else:
-            self.layer4 = self._make_layer(block, 64, layers[3])
-
-        if self.first_conv:
-            self.upscale = Interpolate(scale_factor=2)
-            self.upscale_factor *= 2
-        else:
-            self.upscale = Interpolate(scale_factor=1)
-
-        # interpolate after linear layer using scale factor
-        self.upscale1 = Interpolate(size=input_height // self.upscale_factor)
-
-        """
-        # output 10 * num_mixtures for discretized likelihood
-        num_mixtures = 10
-        out_channels = 10 * num_mixtures
-        """
-        self.conv1 = nn.Conv2d(
-            64 * block.expansion, 3, kernel_size=3, stride=1, padding=1, bias=False
-        )
-
-    def _make_layer(self, block, planes, blocks, scale=1):
-        upsample = None
-        if scale != 1 or self.inplanes != planes * block.expansion:
-            upsample = nn.Sequential(
-                resize_conv1x1(self.inplanes, planes * block.expansion, scale),
-                nn.BatchNorm2d(planes * block.expansion),
-            )
-
-        layers = []
-        layers.append(block(self.inplanes, planes, scale, upsample))
-        self.inplanes = planes * block.expansion
-        for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.linear(x)
-
-        # NOTE: replaced this by Linear(in_channels, 514 * 4 * 4)
-        # x = F.interpolate(x, scale_factor=4)
-
-        x = x.view(x.size(0), 512 * self.expansion, 4, 4)
-        x = self.upscale1(x)
-
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.upscale(x)
-
-        x = self.conv1(x)
-        return x
+def resnet18(**kwargs):
+    return ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
 
 
-def resnet18_encoder(first_conv, maxpool1):
-    return ResNetEncoder(EncoderBlock, [2, 2, 2, 2], first_conv, maxpool1)
+def resnet50(**kwargs):
+    return ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
 
 
-def resnet18_decoder(latent_dim, input_height, first_conv, maxpool1):
-    return ResNetDecoder(
-        DecoderBlock, [2, 2, 2, 2], latent_dim, input_height, first_conv, maxpool1
-    )
+def resnet50w2(**kwargs):
+    return ResNet(Bottleneck, [3, 4, 6, 3], widen=2, **kwargs)
 
 
-def resnet50_encoder(first_conv, maxpool1):
-    return ResNetEncoder(EncoderBottleneck, [3, 4, 6, 3], first_conv, maxpool1)
-
-
-def resnet50_decoder(latent_dim, input_height, first_conv, maxpool1):
-    return ResNetDecoder(
-        DecoderBottleneck, [3, 4, 6, 3], latent_dim, input_height, first_conv, maxpool1
-    )
-
-
-def test_resnet18_encoder():
-    model = resnet18_encoder(first_conv=False, maxpool1=False)
-    img = torch.rand(64, 3, 32, 32)
-    out = model(img)
-    assert out.shape == (64, 512)
-
-
-def test_resnet18_decoder():
-    model = resnet18_decoder(
-        latent_dim=256, first_conv=False, maxpool1=False, input_height=32
-    )
-    z = torch.rand(64, 256)
-    out = model(z)
-    assert out.shape == (64, 3, 32, 32)
-
-
-def test_resnet_50_encoder():
-    model = resnet50_encoder(first_conv=False, maxpool1=False)
-    img = torch.rand(64, 3, 32, 32)
-    out = model(img)
-    assert out.shape == (64, 512 * 4)
-
-
-def test_resnet50_decoder():
-    model = resnet50_decoder(
-        latent_dim=256, input_height=32, first_conv=False, maxpool1=False
-    )
-    z = torch.rand(64, 256)
-    out = model(z)
-    assert out.shape == (64, 3, 32, 32)
+def resnet50w4(**kwargs):
+    return ResNet(Bottleneck, [3, 4, 6, 3], widen=4, **kwargs)

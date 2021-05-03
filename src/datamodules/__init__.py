@@ -5,4 +5,4 @@ from src.datamodules.normalization import (
 )
 
 from src.datamodules.cifar10 import CIFAR10DataModule
-fromsrc.datamodules.stl10 import STL
+from src.datamodules.stl10 import STL10DataModule

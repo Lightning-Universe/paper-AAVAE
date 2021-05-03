@@ -2,7 +2,7 @@ import torchvision.transforms as transforms
 import numpy as np
 
 
-class LocalTransform:
+class SimCLRTransform:
     def __init__(
         self,
         input_height: int = 224,
