@@ -13,6 +13,7 @@ class TrainTransform:
 
     def __init__(
         self,
+        denoising: bool = True,
         input_height: int = 32,
         dataset="cifar10",
         gaussian_blur: bool = True,
@@ -22,12 +23,18 @@ class TrainTransform:
     ) -> None:
         self.online_ft = online_ft
 
-        self.input_transform = SimCLRTransform(
-            input_height=input_height,
-            jitter_strength=jitter_strength,
-            gaussian_blur=gaussian_blur,
-            normalize=normalize,
-        )
+        if denoising:
+            self.input_transform = SimCLRTransform(
+                input_height=input_height,
+                jitter_strength=jitter_strength,
+                gaussian_blur=gaussian_blur,
+                normalize=normalize,
+            )
+        else:
+            self.input_transform = OriginalTransform(
+                dataset=dataset, normalize=normalize
+            )
+
         self.original_transform = OriginalTransform(
             dataset=dataset, normalize=normalize
         )
@@ -53,6 +60,7 @@ class EvalTransform:
 
     def __init__(
         self,
+        denoising: bool = True,
         input_height: int = 224,
         dataset="cifar10",
         gaussian_blur: bool = True,
@@ -62,12 +70,18 @@ class EvalTransform:
     ) -> None:
         self.online_ft = online_ft
 
-        self.input_transform = SimCLRTransform(
-            input_height=input_height,
-            jitter_strength=jitter_strength,
-            gaussian_blur=gaussian_blur,
-            normalize=normalize,
-        )
+        if denoising:
+            self.input_transform = SimCLRTransform(
+                input_height=input_height,
+                jitter_strength=jitter_strength,
+                gaussian_blur=gaussian_blur,
+                normalize=normalize,
+            )
+        else:
+            self.input_transform = OriginalTransform(
+                dataset=dataset, normalize=normalize
+            )
+
         self.original_transform = OriginalTransform(
             dataset=dataset, normalize=normalize
         )

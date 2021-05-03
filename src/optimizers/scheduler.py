@@ -1,6 +1,7 @@
 import math
 
 
+# TODO: add step decay
 def linear_warmup_decay(warmup_steps, total_steps, cosine=True, linear=False):
     """
     Linear warmup for warmup_steps, optionally with cosine annealing or

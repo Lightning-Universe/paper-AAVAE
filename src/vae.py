@@ -14,6 +14,7 @@ from src.models import ProjectionEncoder
 from src.models import resnet18, resnet50, resnet50w2, resnet50w4
 from src.models import decoder18, decoder50, decoder50w2, decoder50w4
 
+from src.transforms import TrainTransform, EvalTransform
 from src.callbacks import OnlineFineTuner, EarlyStopping
 from src.datamodules import CIFAR10DataModule, STL10DataModule
 from src.datamodules import cifar10_normalization, stl10_normalization

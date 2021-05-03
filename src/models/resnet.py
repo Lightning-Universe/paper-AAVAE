@@ -283,3 +283,30 @@ def resnet50w2(**kwargs):
 
 def resnet50w4(**kwargs):
     return ResNet(Bottleneck, [3, 4, 6, 3], widen=4, **kwargs)
+
+
+def test_resnet():
+    imgs = torch.rand(64, 3, 32, 32)
+
+    encoder = resnet50(first_conv3x3=True, remove_first_maxpool=True)
+    assert encoder(imgs).shape == (64, 2048)
+
+    encoder = resnet50w2(first_conv3x3=True, remove_first_maxpool=True)
+    assert encoder(imgs).shape == (64, 4096)
+
+    encoder = resnet50w4(first_conv3x3=True, remove_first_maxpool=True)
+    assert encoder(imgs).shape == (64, 8192)
+
+    imgs = torch.rand(64, 3, 96, 96)
+
+    encoder = resnet50(first_conv3x3=False, remove_first_maxpool=True)
+    assert encoder(imgs).shape == (64, 2048)
+
+    imgs = torch.rand(64, 3, 224, 224)
+
+    encoder = resnet50(first_conv3x3=False, remove_first_maxpool=False)
+    assert encoder(imgs).shape == (64, 2048)
+
+
+if __name__ == "__main__":
+    # test_resnet()
