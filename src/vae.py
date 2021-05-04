@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import argparse
 import numpy as np
 
 from torch.optim import Adam
@@ -21,13 +22,13 @@ from src.datamodules import CIFAR10DataModule, STL10DataModule
 from src.datamodules import cifar10_normalization, stl10_normalization
 
 
-encoders = {
+ENCODERS = {
     "resnet18": resnet18,
     "resnet50": resnet50,
     "resnet50w2": resnet50w2,
     "resnet50w4": resnet50w4,
 }
-decoders = {
+DECODERS = {
     "resnet18": decoder18,
     "resnet50": decoder50,
     "resnet50w2": decoder50w2,
@@ -45,8 +46,9 @@ class VAE(pl.LightningModule):
         kl_coeff,
         h_dim,
         latent_dim,
+        optimizer,
         learning_rate,
-        encoder,
+        encoder_name,
         first_conv3x3,
         remove_first_maxpool,
         dataset,
@@ -72,6 +74,7 @@ class VAE(pl.LightningModule):
         self.gpus = gpus
         self.online_ft = online_ft
 
+        self.optimizer = optimizer
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.exclude_bn_bias = exclude_bn_bias
@@ -80,7 +83,7 @@ class VAE(pl.LightningModule):
         self.cosine_decay = cosine_decay
         self.linear_decay = linear_decay
 
-        self.encoder = encoder
+        self.encoder_name = encoder_name
         self.h_dim = h_dim
         self.latent_dim = latent_dim
         self.first_conv3x3 = first_conv3x3
@@ -96,11 +99,11 @@ class VAE(pl.LightningModule):
         )
         self.train_iters_per_epoch = self.num_samples // global_batch_size
 
-        self.encoder = encoders[self.encoder](
+        self.encoder = ENCODERS[self.encoder_name](
             first_conv3x3=self.first_conv3x3,
             remove_first_maxpool=self.remove_first_maxpool,
         )
-        self.decoder = decoders[self.encoder](
+        self.decoder = DECODERS[self.encoder_name](
             input_height=self.input_height,
             latent_dim=self.latent_dim,
             h_dim=self.h_dim,
@@ -319,7 +322,7 @@ if __name__ == "__main__":
 
     # ae params
     parser.add_argument("--denoising", action="store_true")
-    parser.add_argument("--encoder", default="resnet50", choices=encoders.keys())
+    parser.add_argument("--encoder_name", default="resnet50", choices=ENCODERS.keys())
     parser.add_argument("--h_dim", type=int, default=2048)
     parser.add_argument("--latent_dim", type=int, default=128)
     parser.add_argument("--first_conv3x3", type=bool, default=True)  # default for cifar-10
@@ -337,7 +340,7 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=1e-6)
     parser.add_argument("--exclude_bn_bias", action="store_true")
 
-    parser.add_argument("--warmup_epochs", type=int, default=10)
+    parser.add_argument("--warmup_epochs", type=int, default=20)
     parser.add_argument("--max_epochs", type=int, default=3200)
     parser.add_argument("--cosine_decay", type=int, default=0)
     parser.add_argument("--linear_decay", type=int, default=0)

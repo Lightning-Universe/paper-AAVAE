@@ -309,4 +309,4 @@ def test_resnet():
 
 
 if __name__ == "__main__":
-    # test_resnet()
+    test_resnet()

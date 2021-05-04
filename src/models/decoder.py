@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from torch import Tensor
 from typing import Type, Any, Callable, Union, List, Optional
@@ -204,7 +205,7 @@ class Decoder(nn.Module):
         num_out_filters /= 2
         self.layer4 = self._make_layer(block, int(num_out_filters), layers[3], Interpolate())
 
-        self.conv2 = conv3x3(num_out_filters * block.expansion, self.base_width)
+        self.conv2 = conv3x3(int(num_out_filters) * block.expansion, self.base_width)
         self.bn2 = norm_layer(self.base_width)
         self.final_conv = conv3x3(self.base_width, 3)
 
