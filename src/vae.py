@@ -100,10 +100,10 @@ class VAE(pl.LightningModule):
             first_conv3x3=self.first_conv3x3,
             remove_first_maxpool=self.remove_first_maxpool,
         )
-        # TODO:
         self.decoder = decoders[self.encoder](
-            self.latent_dim,
-            self.input_height,
+            input_height=self.input_height,
+            latent_dim=self.latent_dim,
+            h_dim=self.h_dim,
             first_conv3x3=self.first_conv3x3,
             remove_first_maxpool=self.remove_first_maxpool,
         )
@@ -156,7 +156,17 @@ class VAE(pl.LightningModule):
         kl = torch.distributions.kl.kl_divergence(q, p).sum(dim=-1)
         log_pz = p.log_prob(z).sum(dim=-1)
         log_qz = q.log_prob(z).sum(dim=-1)
+
         return kl, log_pz, log_qz
+
+    @staticmethod
+    def gaussian_likelihood(mean, logscale, sample):
+        scale = torch.exp(logscale)
+        dist = torch.distributions.Normal(mean, scale)
+        log_pxz = dist.log_prob(sample)
+
+        # sum over dimensions
+        return log_pxz.sum(dim=(1, 2, 3))
 
     def step(self, batch, samples=1):
         if self.dataset == "stl10":
@@ -198,7 +208,7 @@ class VAE(pl.LightningModule):
             cos_sims.append(self.cosine_similarity(z_orig, z))
 
             x_hat = self.decoder(z)
-            log_pxz = gaussian_likelihood(x_hat, self.log_scale, original)
+            log_pxz = self.gaussian_likelihood(x_hat, self.log_scale, original)
 
             elbo = kl - log_pxz
             loss = self.kl_coeff * kl - log_pxz

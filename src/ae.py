@@ -91,10 +91,10 @@ class AE(pl.LightningModule):
             first_conv3x3=self.first_conv3x3,
             remove_first_maxpool=self.remove_first_maxpool,
         )
-        # TODO:
         self.decoder = decoders[self.encoder](
-            self.latent_dim,
-            self.input_height,
+            input_height=self.input_height,
+            latent_dim=self.latent_dim,
+            h_dim=self.h_dim,
             first_conv3x3=self.first_conv3x3,
             remove_first_maxpool=self.remove_first_maxpool,
         )

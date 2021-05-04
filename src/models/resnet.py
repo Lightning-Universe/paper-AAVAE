@@ -169,7 +169,7 @@ class ResNet(nn.Module):
         if first_conv3x3:
             self.conv1 = nn.Conv2d(3, num_out_filters, kernel_size=3, stride=1, padding=1, bias=False)
         else:
-            self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+            self.conv1 = nn.Conv2d(3, num_out_filters, kernel_size=7, stride=2, padding=3, bias=False)
 
         self.bn1 = norm_layer(num_out_filters)
         self.relu = nn.ReLU(inplace=True)
