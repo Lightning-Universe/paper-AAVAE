@@ -118,7 +118,7 @@ class AE(pl.LightningModule):
         else:
             (x, original), y = batch
 
-        # get representations of original image (for metric)
+        # get representations of original image
         with torch.no_grad():
             h_original = self.encoder(original).clone().detach()
             z_original = self.projection(h_original)
@@ -198,7 +198,6 @@ class AE(pl.LightningModule):
 
 
 if __name__ == "__main__":
-    # torch.autograd.set_detect_anomaly(True)
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument('--local_rank', type=int, default=0)  # added to launch 2 ddp script on same node
@@ -305,7 +304,7 @@ if __name__ == "__main__":
     # TODO: add early stopping
     callbacks = [
         LearningRateMonitor(logging_interval="step"),
-        ModelCheckpoint(save_last=True, save_top_k=1, monitor='cos_sim')
+        ModelCheckpoint(save_last=True, save_top_k=1, monitor='val_cos_sim')
     ]
 
     if args.online_ft:
