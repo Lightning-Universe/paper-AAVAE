@@ -13,6 +13,9 @@ class Interpolate(nn.Module):
         self.upscale = upscale
         self.size = size
 
+        if self.upscale == 'size':
+            assert self.size is not None
+
     def forward(self, x):
         if self.upscale == 'scale':
             return F.interpolate(x, scale_factor=2, mode='nearest')
@@ -58,14 +61,12 @@ class BasicBlock(nn.Module):
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = norm_layer(planes)
         self.upsample = upsample
-        self.interpolate = Interpolate()
         self.upscale = upscale
 
     def forward(self, x) -> Tensor:
         identity = x
 
-        # add upsample before first conv in the block
-        # if the skip connection has upsample
+        # if upscale is not None it will also be added to upsample
         out = x
         if self.upscale is not None:
             out = self.upscale(out)
@@ -113,7 +114,6 @@ class Bottleneck(nn.Module):
         self.bn3 = norm_layer(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.upsample = upsample
-        self.interpolate = Interpolate()
         self.upscale = upscale
 
     def forward(self, x) -> Tensor:
@@ -123,8 +123,7 @@ class Bottleneck(nn.Module):
         out = self.bn1(out)
         out = self.relu(out)
 
-        # add upsample before second conv in the block
-        # if the skip connection has upsample
+        # if upscale is not None it will also be added to upsample
         if self.upscale is not None:
             out = self.upscale(out)
 
@@ -236,7 +235,7 @@ class Decoder(nn.Module):
         norm_layer = self._norm_layer
         upsample = None
 
-        if self.inplanes != planes * block.expansion:
+        if self.inplanes != planes * block.expansion or upscale is not None:
             # this is passed into residual block for skip connection
             upsample = []
             if upscale is not None:
@@ -258,7 +257,6 @@ class Decoder(nn.Module):
             )
         )
         self.inplanes = planes * block.expansion
-
         for _ in range(1, blocks):
             layers.append(
                 block(
