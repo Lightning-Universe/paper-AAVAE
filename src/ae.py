@@ -312,7 +312,7 @@ if __name__ == "__main__":
 
     if args.online_ft:
         online_finetuner = OnlineFineTuner(
-            encoder_output_dim=model.encoder.out_dim,
+            encoder_output_dim=args.h_dim,
             num_classes=dm.num_classes,
             dataset=args.dataset
         )
