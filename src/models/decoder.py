@@ -184,10 +184,6 @@ class Decoder(nn.Module):
         self.conv2 = conv3x3(int(num_out_filters) * block.expansion, self.base_width)
         self.final_conv = conv3x3(self.base_width, 3)
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-
     def _make_layer(
         self,
         block: Type[Union[BasicBlock, Bottleneck]],
