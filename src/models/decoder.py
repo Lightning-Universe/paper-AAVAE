@@ -26,13 +26,13 @@ class Interpolate(nn.Module):
 def conv3x3(in_planes: int, out_planes: int, groups: int = 1) -> nn.Conv2d:
     """3x3 convolution with padding"""
     return nn.Conv2d(
-        in_planes, out_planes, kernel_size=3, padding=1, groups=groups, bias=False
+        in_planes, out_planes, kernel_size=3, padding=1, groups=groups, bias=True
     )
 
 
 def conv1x1(in_planes: int, out_planes: int) -> nn.Conv2d:
     """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, bias=False)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, bias=True)
 
 
 class BasicBlock(nn.Module):
@@ -163,7 +163,7 @@ class Decoder(nn.Module):
         self.base_width = 64
         num_out_filters = width_per_group * widen
 
-        self.linear_projection = nn.Linear(latent_dim, h_dim, bias=False)
+        self.linear_projection = nn.Linear(latent_dim, h_dim, bias=True)
         self.relu = nn.ReLU(inplace=True)
 
         self.conv1 = conv1x1(self.h_dim // 16, self.h_dim)
