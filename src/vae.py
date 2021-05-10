@@ -200,7 +200,6 @@ class VAE(pl.LightningModule):
         elbos = []
         losses = []
         cos_sims = []
-        dots = []
 
         for _ in range(samples):
             p, q, z = self.sample(mu, log_var)
@@ -209,8 +208,6 @@ class VAE(pl.LightningModule):
             with torch.no_grad():
                 _, _, z_orig = self.sample(mu_orig, log_var_orig)
 
-            dot = torch.bmm(z_orig.view(batch_size, 1, -1), z.view(batch_size, -1, 1)).squeeze(-1)
-            dots.append(dot)
             cos_sims.append(self.cosine_similarity(z_orig, z))
 
             x_hat = self.decoder(z)
@@ -237,7 +234,6 @@ class VAE(pl.LightningModule):
         loss = torch.stack(losses, dim=1).mean()
 
         cos_sim = torch.stack(cos_sims, dim=1).mean()
-        dot_prod = torch.stack(dots, dim=1).mean()
 
         # marginal likelihood, logsumexp over sample dim, mean over batch dim
         log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=1).mean(dim=0) - np.log(
@@ -254,7 +250,6 @@ class VAE(pl.LightningModule):
             "log_pxz": log_pxz.mean(),
             "log_pz": log_pz.mean(),
             "log_px": log_px,
-            'dot_prod': dot_prod,
             "log_scale": self.log_scale.item(),
         }
 

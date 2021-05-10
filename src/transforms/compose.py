@@ -49,7 +49,7 @@ class TrainTransform:
 
         if self.online_ft:
             train_transforms.append(self.finetune_transform(x))
-        
+
         return train_transforms
 
 
