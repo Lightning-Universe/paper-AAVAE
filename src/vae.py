@@ -200,13 +200,18 @@ class VAE(pl.LightningModule):
         elbos = []
         losses = []
         cos_sims = []
+        kl_augmentations = []
 
         for _ in range(samples):
             p, q, z = self.sample(mu, log_var)
             kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
 
             with torch.no_grad():
-                _, _, z_orig = self.sample(mu_orig, log_var_orig)
+                _, q_orig, z_orig = self.sample(mu_orig, log_var_orig)
+
+            # kl between original image and augmented image
+            kl_aug = torch.distributions.kl.kl_divergence(q, q_orig).sum(dim=-1)
+            kl_augmentations.append(kl_aug)
 
             cos_sims.append(self.cosine_similarity(z_orig, z))
 
@@ -234,6 +239,7 @@ class VAE(pl.LightningModule):
         loss = torch.stack(losses, dim=1).mean()
 
         cos_sim = torch.stack(cos_sims, dim=1).mean()
+        kl_augmentation = torch.stack(kl_augmentations, dim=1).mean()
 
         # marginal likelihood, logsumexp over sample dim, mean over batch dim
         log_px = torch.logsumexp(log_pxz + log_pz - log_qz, dim=1).mean(dim=0) - np.log(
@@ -247,6 +253,7 @@ class VAE(pl.LightningModule):
             "loss": loss,
             "bpd": bpd,
             "cos_sim": cos_sim,
+            "kl_augmentation": kl_augmentation,
             "log_pxz": log_pxz.mean(),
             "log_pz": log_pz.mean(),
             "log_px": log_px,
