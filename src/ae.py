@@ -90,11 +90,11 @@ class AE(pl.LightningModule):
         )
         self.train_iters_per_epoch = self.num_samples // global_batch_size
 
-        self.encoder = encoders[self.encoder_name](
+        self.encoder = ENCODERS[self.encoder_name](
             first_conv3x3=self.first_conv3x3,
             remove_first_maxpool=self.remove_first_maxpool,
         )
-        self.decoder = decoders[self.encoder_name](
+        self.decoder = DECODERS[self.encoder_name](
             input_height=self.input_height,
             latent_dim=self.latent_dim,
             h_dim=self.h_dim,
