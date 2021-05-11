@@ -163,7 +163,8 @@ class Decoder(nn.Module):
         self.base_width = 64
         num_out_filters = width_per_group * widen
 
-        self.linear_projection = nn.Linear(latent_dim, h_dim, bias=True)
+        self.linear_projection1 = nn.Linear(latent_dim, h_dim, bias=True)
+        self.linear_projection2 = nn.Linear(h_dim, h_dim, bias=True)
         self.relu = nn.ReLU(inplace=True)
 
         self.conv1 = conv1x1(self.h_dim // 16, self.h_dim)
@@ -227,8 +228,8 @@ class Decoder(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x: Tensor) -> Tensor:
-        x = self.linear_projection(x)
-        x = self.relu(x)
+        x = self.relu(self.linear_projection1(x))
+        x = self.relu(self.linear_projection2(x))
 
         x = x.view(x.size(0), self.h_dim // 16, 4, 4)
         x = self.conv1(x)
