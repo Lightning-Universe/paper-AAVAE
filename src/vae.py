@@ -66,6 +66,8 @@ class VAE(pl.LightningModule):
     ) -> None:
         super(VAE, self).__init__()
 
+        self.save_hyperparameters()
+
         self.input_height = input_height
         self.num_samples = num_samples
         self.dataset = dataset
@@ -120,6 +122,9 @@ class VAE(pl.LightningModule):
         # start log-scale with a specific value
         self.log_scale = nn.Parameter(torch.Tensor([self.log_scale]))
         self.log_scale.requires_grad = bool(self.learn_scale)
+
+    def on_train_start(self):
+        self.logger.log_hyperparams(self.hparams)
 
     def forward(self, x):
         return self.encoder(x)
@@ -344,7 +349,7 @@ if __name__ == "__main__":
     # optimizer param
     parser.add_argument("--optimizer", type=str, default="adam")  # adam/lamb
     parser.add_argument("--learning_rate", type=float, default=1e-3)
-    parser.add_argument("--weight_decay", type=float, default=1e-6)
+    parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--exclude_bn_bias", action="store_true")
 
     parser.add_argument("--warmup_epochs", type=int, default=20)
@@ -431,7 +436,8 @@ if __name__ == "__main__":
     # TODO: add early stopping
     callbacks = [
         LearningRateMonitor(logging_interval="step"),
-        ModelCheckpoint(save_last=True, every_n_val_epochs=20)
+        ModelCheckpoint(save_last=True, save_top_k=2, monitor='val_cos_sim', mode='max'),
+        # ModelCheckpoint(every_n_val_epochs=20, save_top_k=-1),
     ]
 
     if args.online_ft:

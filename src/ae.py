@@ -62,6 +62,8 @@ class AE(pl.LightningModule):
     ) -> None:
         super(AE, self).__init__()
 
+        self.save_hyperparameters()
+
         self.input_height = input_height
         self.num_samples = num_samples
         self.dataset = dataset
@@ -107,6 +109,9 @@ class AE(pl.LightningModule):
         )
 
         self.cosine_similarity = nn.CosineSimilarity(dim=1, eps=1e-6)
+
+    def on_train_start(self):
+        self.logger.log_hyperparams(self.hparams)
 
     def forward(self, x):
         return self.encoder(x)
@@ -307,7 +312,8 @@ if __name__ == "__main__":
     # TODO: add early stopping
     callbacks = [
         LearningRateMonitor(logging_interval="step"),
-        ModelCheckpoint(save_last=True, every_n_val_epochs=20)
+        ModelCheckpoint(save_last=True, save_top_k=2, monitor='val_cos_sim', mode='max'),
+        # ModelCheckpoint(every_n_val_epochs=20, save_top_k=-1),
     ]
 
     if args.online_ft:
