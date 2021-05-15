@@ -133,8 +133,8 @@ class VAE(pl.LightningModule):
         """
         z_mu and z_var is (batch, dim)
         """
-        # add ep to prevent 0 variance
-        std = torch.exp(z_var / 2) + eps
+        # add eps to prevent 0 variance
+        std = torch.exp(z_var / 2.) + eps
 
         p = torch.distributions.Normal(torch.zeros_like(z_mu), torch.ones_like(std))
         q = torch.distributions.Normal(z_mu, std)
@@ -168,8 +168,8 @@ class VAE(pl.LightningModule):
         return kl, log_pz, log_qz
 
     @staticmethod
-    def gaussian_likelihood(mean, logscale, sample):
-        scale = torch.exp(logscale)
+    def gaussian_likelihood(mean, logscale, sample, eps=1e-6):
+        scale = torch.exp(logscale / 2.) + eps
         dist = torch.distributions.Normal(mean, scale)
         log_pxz = dist.log_prob(sample)
 
