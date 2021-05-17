@@ -1,10 +1,10 @@
 #!/bin/sh
 
-WEIGHT_DECAY=(0 1e-6 1e-5 1e-4 1e-3 1e-2 0.1 1)
-KL=1e-3
+LOG_SCALE=$(awk -v n=8 -v min=-5 -v max=2 -v seed="$RANDOM" 'BEGIN { srand(seed); for (i=0; i<n; ++i) print rand() * (max - min) + min }')
 LR=1e-4
+KL=1e-3
 
 for i in {0..8}; do
-    screen -dmS "run$i" bash -c "source /home/ananya/env/bin/activate; python setup.py install; CUDA_VISIBLE_DEVICES=$i python src/vae.py --seed $(date +%s) --denoising --gpus 1 --online_ft --batch_size 256 --warmup_epochs 10 --kl_coeff $KL --learning_rate $LR --weight_decay ${WEIGHT_DECAY[$i]}; exec sh"
+    screen -dmS "run$i" bash -c "source /home/ananya/env/bin/activate; python setup.py install; CUDA_VISIBLE_DEVICES=$i python src/vae.py --seed $(date +%s) --denoising --gpus 1 --batch_size 256 --warmup_epochs 10 --val_samples 16 --weight_decay 0 --learning_rate $LR --kl_coeff $KL --log_scale ${LOG_SCALE[$i]}; exec sh"
     sleep 5
 done
