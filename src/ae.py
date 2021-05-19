@@ -237,6 +237,7 @@ if __name__ == "__main__":
     # datamodule params
     parser.add_argument("--data_path", type=str, default=".")
     parser.add_argument("--dataset", type=str, default="cifar10")  # cifar10, stl10
+    parser.add_argument("--num_samples", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--num_workers", type=int, default=8)
 
@@ -249,7 +250,7 @@ if __name__ == "__main__":
     pl.seed_everything(args.seed)
 
     # set hidden dim for resnet18
-    if args.encoder == "resnet18":
+    if args.encoder_name == "resnet18":
         args.h_dim = 512
 
     if args.dataset == "cifar10":
