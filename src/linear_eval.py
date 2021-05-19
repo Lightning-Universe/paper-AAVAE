@@ -257,7 +257,7 @@ if __name__ == "__main__":
         num_samples=args.num_samples,
         batch_size=args.batch_size,
         gpus=args.gpus,
-        epochs=args.epochs,
+        epochs=args.max_epochs,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
         nesterov=args.nesterov,
