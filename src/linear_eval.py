@@ -153,7 +153,7 @@ if __name__ == "__main__":
     parser.add_argument('--ckpt_path', type=str, help='path to ckpt')
     parser.add_argument("--data_path", type=str, default=".")
 
-    parser.add_argument("--batch_size", default=1024, type=int, help="batch size per gpu")
+    parser.add_argument("--batch_size", default=256, type=int, help="batch size per gpu")
     parser.add_argument("--num_workers", default=8, type=int, help="num of workers per GPU")
     parser.add_argument("--gpus", default=1, type=int, help="number of GPUs")
     parser.add_argument('--max_epochs', default=90, type=int, help="number of epochs")
@@ -238,8 +238,17 @@ if __name__ == "__main__":
     dm.val_transforms = eval_transforms
     dm.test_transforms = eval_transforms
 
-    # TODO: load encoder weights from ckpt
     encoder = ENCODERS[args.encoder_name](first_conv3x3=args.first_conv3x3, remove_first_maxpool=args.remove_first_maxpool)
+
+    # load encoder weights from ckpt
+    device = torch.device(encoder.conv1.weight.device)
+    ckpt_model = torch.load(args.ckpt_path, map_location=device)
+    encoder_dict = {}
+
+    for k in ckpt_model['state_dict'].keys():
+        if 'encoder' in k:
+            encoder_dict[k.replace('encoder.', '')] = ckpt_model['state_dict'][k]
+    encoder.load_state_dict(encoder_dict, strict=True)
 
     linear_eval = LinearEvaluation(
         encoder=encoder,
