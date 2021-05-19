@@ -35,7 +35,7 @@ class LinearEvaluation(pl.LightningModule):
         num_samples: int,
         batch_size: int,
         gpus: int,
-        epochs: int,
+        max_epochs: int,
         learning_rate: float,
         weight_decay: float,
         nesterov: bool,
@@ -52,7 +52,7 @@ class LinearEvaluation(pl.LightningModule):
         self.num_samples = num_samples
         self.gpus = gpus
 
-        self.epochs = epochs
+        self.max_epochs = max_epochs
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.nesterov = nesterov
