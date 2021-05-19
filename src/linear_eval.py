@@ -7,6 +7,7 @@ import torchvision.transforms as transforms
 from torch.optim import SGD
 from torch.nn import functional as F
 from pytorch_lightning.metrics import Accuracy
+from pytorch_lightning.callbacks import LearningRateMonitor
 
 from src.optimizers import linear_warmup_decay
 from src.models import resnet18, resnet50, resnet50w2, resnet50w4
@@ -110,7 +111,7 @@ class LinearEvaluation(pl.LightningModule):
         acc = self.train_acc(F.softmax(logits, dim=1), y)
 
         self.log('train_loss', loss, prog_bar=True, on_step=True, on_epoch=False)
-        self.log('train_acc_step', acc, prog_bar=True, on_step=True, on_epoch=False)
+        self.log('train_acc_step', acc, on_step=True, on_epoch=False)
         self.log('train_acc_epoch', self.train_acc, on_step=False, on_epoch=True)
 
         return loss
@@ -120,7 +121,7 @@ class LinearEvaluation(pl.LightningModule):
         self.val_acc(F.softmax(logits, dim=1), y)
 
         self.log('val_loss', loss, prog_bar=True, sync_dist=True, on_step=False, on_epoch=True)
-        self.log('val_acc', self.val_acc, on_step=False, on_epoch=True)
+        self.log('val_acc', self.val_acc, prog_bar=True, on_step=False, on_epoch=True)
 
         return loss
 
@@ -128,7 +129,7 @@ class LinearEvaluation(pl.LightningModule):
         loss, logits, y = self.shared_step(batch)
         self.test_acc(F.softmax(logits, dim=1), y)
 
-        self.log('test_loss', loss, prog_bar=True, sync_dist=True, on_step=False, on_epoch=True)
+        self.log('test_loss', loss, sync_dist=True, on_step=False, on_epoch=True)
         self.log('test_acc', self.test_acc, on_step=False, on_epoch=True)
 
         return loss
@@ -269,6 +270,7 @@ if __name__ == "__main__":
         gpus=args.gpus,
         distributed_backend="ddp" if args.gpus > 1 else None,
         precision=16,
+        callbacks=[LearningRateMonitor(logging_interval="step")]
     )
 
     trainer.fit(linear_eval, dm)
