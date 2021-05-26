@@ -208,7 +208,7 @@ class VAE(pl.LightningModule):
         cos_sims = []
         kl_augmentations = []
 
-        for sample_idx in range(samples):
+        for _ in range(samples):
             p, q, z = self.sample(mu, log_var)
             kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
 
@@ -276,7 +276,7 @@ class VAE(pl.LightningModule):
         self.log_dict({f"train_{k}": v for k, v in logs.items()})
 
         if self.global_step % 1000 == 0:
-            self.logger.experiment.log_image('train_reconstructions', img_grid, self.global_step)
+            self.logger.experiment.add_image('train_reconstructions', img_grid, global_step=self.global_step)
 
         return loss
 
@@ -285,7 +285,7 @@ class VAE(pl.LightningModule):
         self.log_dict({f"val_{k}": v for k, v in logs.items()})
 
         if self.global_step % 1000 == 0:
-            self.logger.experiment.log_image('val_reconstructions', img_grid, self.global_step)
+            self.logger.experiment.add_image('val_reconstructions', img_grid, global_step=self.global_step)
 
         return loss
 
