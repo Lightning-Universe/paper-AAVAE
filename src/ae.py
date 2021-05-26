@@ -131,6 +131,7 @@ class AE(pl.LightningModule):
             h_original = self.encoder(original).clone().detach()
             z_original = self.projection(h_original)
 
+        # TODO: add val reconstructions here
         h = self.encoder(x)
         z = self.projection(h)
         x_hat = self.decoder(z)
@@ -249,9 +250,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     pl.seed_everything(args.seed)
 
-    # set hidden dim for resnet18
+    # set hidden dim for resnets
     if args.encoder_name == "resnet18":
         args.h_dim = 512
+    elif args.encoder_name == "resnet50w2":
+        args.h_dim = 4096
+    elif args.encoder_name == "resnet50w4":
+        args.h_dim = 8192
 
     if args.dataset == "cifar10":
         dm = CIFAR10DataModule(

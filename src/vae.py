@@ -1,4 +1,5 @@
 import torch
+import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
 import argparse
@@ -207,7 +208,7 @@ class VAE(pl.LightningModule):
         cos_sims = []
         kl_augmentations = []
 
-        for _ in range(samples):
+        for sample_idx in range(samples):
             p, q, z = self.sample(mu, log_var)
             kl, log_pz, log_qz = self.kl_divergence_analytic(p, q, z)
 
@@ -222,6 +223,12 @@ class VAE(pl.LightningModule):
 
             x_hat = self.decoder(z)
             log_pxz = self.gaussian_likelihood(x_hat, self.log_scale, original)
+
+            # plot reconstructions
+            if samples > 1:
+                if sample_idx == 0:
+                    img_grid = torchvision.utils.make_grid(x_hat)
+                    self.logger.experiment.add_image('val_reconstructions', img_grid, self.global_step)
 
             elbo = kl - log_pxz
             loss = self.kl_coeff * kl - log_pxz
@@ -377,7 +384,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     pl.seed_everything(args.seed)
 
-    # set hidden dim for resnet18
+    # set hidden dim for resnets
     if args.encoder_name == "resnet18":
         args.h_dim = 512
     elif args.encoder_name == "resnet50w2":
