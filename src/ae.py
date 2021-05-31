@@ -318,8 +318,7 @@ if __name__ == "__main__":
     # TODO: add early stopping
     callbacks = [
         LearningRateMonitor(logging_interval="step"),
-        ModelCheckpoint(save_last=True, save_top_k=3, monitor='val_cos_sim', mode='max'),
-        # ModelCheckpoint(every_n_val_epochs=20, save_top_k=-1),
+        ModelCheckpoint(every_n_val_epochs=400, save_top_k=-1, save_last=True),
     ]
 
     if args.online_ft:
