@@ -225,7 +225,7 @@ class VAE(pl.LightningModule):
             log_pxz = self.gaussian_likelihood(x_hat, self.log_scale, original)
 
             # plot reconstructions
-            img_grid = torchvision.utils.make_grid(x_hat)
+            # img_grid = torchvision.utils.make_grid(x_hat)
 
             elbo = kl - log_pxz
             loss = self.kl_coeff * kl - log_pxz
@@ -269,23 +269,27 @@ class VAE(pl.LightningModule):
             "log_scale": self.log_scale.item(),
         }
 
-        return loss, logs, img_grid
+        return loss, logs
 
     def training_step(self, batch, batch_idx):
-        loss, logs, img_grid = self.step(batch, samples=1)
+        loss, logs = self.step(batch, samples=1)
         self.log_dict({f"train_{k}": v for k, v in logs.items()})
 
+        """
         if self.global_step % 1000 == 0:
             self.logger.experiment.add_image('train_reconstructions', img_grid, global_step=self.global_step)
+        """
 
         return loss
 
     def validation_step(self, batch, batch_idx):
-        loss, logs, img_grid = self.step(batch, samples=self.val_samples)
+        loss, logs = self.step(batch, samples=self.val_samples)
         self.log_dict({f"val_{k}": v for k, v in logs.items()})
 
+        """
         if self.global_step % 1000 == 0:
             self.logger.experiment.add_image('val_reconstructions', img_grid, global_step=self.global_step)
+        """
 
         return loss
 
