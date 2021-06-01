@@ -6,3 +6,5 @@ from src.datamodules.normalization import (
 
 from src.datamodules.cifar10 import CIFAR10DataModule
 from src.datamodules.stl10 import STL10DataModule
+from src.datamodules.imagenet_dataset import SSLImagenet
+from src.datamodules.imagenet_dataset import ImagenetDataModule

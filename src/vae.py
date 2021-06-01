@@ -19,8 +19,8 @@ from src.models import decoder18, decoder50, decoder50w2, decoder50w4
 from src.optimizers import LAMB, linear_warmup_decay
 from src.transforms import TrainTransform, EvalTransform
 from src.callbacks import OnlineFineTuner, EarlyStopping
-from src.datamodules import CIFAR10DataModule, STL10DataModule
-from src.datamodules import cifar10_normalization, stl10_normalization
+from src.datamodules import CIFAR10DataModule, STL10DataModule, ImagenetDataModule
+from src.datamodules import cifar10_normalization, stl10_normalization, imagenet_normalization
 
 
 ENCODERS = {
@@ -374,7 +374,7 @@ if __name__ == "__main__":
 
     # datamodule params
     parser.add_argument("--data_path", type=str, default=".")
-    parser.add_argument("--dataset", type=str, default="cifar10")  # cifar10, stl10
+    parser.add_argument("--dataset", type=str, default="cifar10")  # cifar10, stl10, imagenet
     parser.add_argument("--num_samples", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--num_workers", type=int, default=8)
@@ -426,6 +426,25 @@ if __name__ == "__main__":
         args.first_conv3x3 = False  # first conv is 7x7 for stl-10
         args.remove_first_maxpool = True  # we still remove maxpool1
         normalization = stl10_normalization()
+
+        args.gaussian_blur = True
+        args.jitter_strength = 1.0
+    elif args.dataset == "imagenet":
+        dm = ImagenetDataModule(
+            data_dir=args.data_path,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+        )
+
+        args.num_samples = dm.num_samples
+        args.input_height = dm.size()[-1]
+
+        args.first_conv3x3 = False # first conv is 7x7 for imagenet
+        args.remove_first_maxpool = False # don't remove first maxpool
+        normalization = imagenet_normalization()
+
+        args.gaussian_blur = True
+        args.jitter_strength = 1.0
     else:
         raise NotImplementedError("other datasets have not been implemented till now")
 
