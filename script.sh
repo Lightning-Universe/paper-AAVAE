@@ -7,6 +7,6 @@ LR=1e-4
 KL=1e-3
 
 for i in {0..7}; do
-    screen -dmS "run$i" bash -c "source /home/ananya/env/bin/activate; python setup.py install; CUDA_VISIBLE_DEVICES=$i python src/vae.py --seed $(date +%s) --gpus 1 --max_epochs 4000 --batch_size 256 --warmup_epochs 10 --val_samples 16 --weight_decay 0 --learning_rate $LR --kl_coeff $KL --log_scale ${LOG_SCALE[$i]}; exec sh"
+    screen -dmS "run$i" bash -c "source /home/ananya/env/bin/activate; python setup.py install; CUDA_VISIBLE_DEVICES=$i python src/vae.py --seed $(date +%s) --online_ft --gpus 1 --max_epochs 4000 --batch_size 256 --warmup_epochs 10 --val_samples 16 --weight_decay 0 --learning_rate $LR --kl_coeff $KL --log_scale ${LOG_SCALE[$i]}; exec sh"
     sleep 5
 done
