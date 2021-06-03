@@ -30,11 +30,11 @@ ENCODERS = {
     "resnet50w4": resnet50w4,
 }
 DECODERS = {
-    "resnet18": decoder18,
-    "resnet34": decoder34,
-    "resnet50": decoder50,
-    "resnet50w2": decoder50w2,
-    "resnet50w4": decoder50w4,
+    "decoder18": decoder18,
+    "decoder34": decoder34,
+    "decoder50": decoder50,
+    "decoder50w2": decoder50w2,
+    "decoder50w4": decoder50w4,
 }
 
 
@@ -50,6 +50,7 @@ class AE(pl.LightningModule):
         optimizer,
         learning_rate,
         encoder_name,
+        decoder_name,
         first_conv3x3,
         remove_first_maxpool,
         dataset,
@@ -84,6 +85,7 @@ class AE(pl.LightningModule):
         self.linear_decay = linear_decay
 
         self.encoder_name = encoder_name
+        self.decoder_name = decoder_name
         self.h_dim = h_dim
         self.latent_dim = latent_dim
         self.first_conv3x3 = first_conv3x3
@@ -98,7 +100,7 @@ class AE(pl.LightningModule):
             first_conv3x3=self.first_conv3x3,
             remove_first_maxpool=self.remove_first_maxpool,
         )
-        self.decoder = DECODERS[self.encoder_name](
+        self.decoder = DECODERS[self.decoder_name](
             input_height=self.input_height,
             latent_dim=self.latent_dim,
             h_dim=self.h_dim,
@@ -216,6 +218,7 @@ if __name__ == "__main__":
     # ae params
     parser.add_argument("--denoising", action="store_true")
     parser.add_argument("--encoder_name", default="resnet50", choices=ENCODERS.keys())
+    parser.add_argument("--decoder_name", default="decoder50", choices=DECODERS.keys())
     parser.add_argument("--h_dim", type=int, default=2048)
     parser.add_argument("--latent_dim", type=int, default=128)
     parser.add_argument("--first_conv3x3", type=bool, default=True)  # default for cifar-10
