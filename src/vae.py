@@ -13,8 +13,8 @@ from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from src.models import ProjectionHeadVAE
-from src.models import resnet18, resnet50, resnet50w2, resnet50w4
-from src.models import decoder18, decoder50, decoder50w2, decoder50w4
+from src.models import resnet18, resnet34, resnet50, resnet50w2, resnet50w4
+from src.models import decoder18, decoder34, decoder50, decoder50w2, decoder50w4
 
 from src.optimizers import LAMB, linear_warmup_decay
 from src.transforms import TrainTransform, EvalTransform
@@ -25,12 +25,14 @@ from src.datamodules import cifar10_normalization, stl10_normalization, imagenet
 
 ENCODERS = {
     "resnet18": resnet18,
+    "resnet34": resnet34,
     "resnet50": resnet50,
     "resnet50w2": resnet50w2,
     "resnet50w4": resnet50w4,
 }
 DECODERS = {
     "resnet18": decoder18,
+    "resnet34": decoder34,
     "resnet50": decoder50,
     "resnet50w2": decoder50w2,
     "resnet50w4": decoder50w4,
@@ -392,7 +394,7 @@ if __name__ == "__main__":
     pl.seed_everything(args.seed)
 
     # set hidden dim for resnets
-    if args.encoder_name == "resnet18":
+    if args.encoder_name == "resnet18" or args.encoder_name == "resnet34":
         args.h_dim = 512
     elif args.encoder_name == "resnet50w2":
         args.h_dim = 4096

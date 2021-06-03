@@ -273,6 +273,10 @@ def resnet18(**kwargs):
     return ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
 
 
+def resnet34(**kwargs):
+    return ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+
+
 def resnet50(**kwargs):
     return ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
 
@@ -287,6 +291,9 @@ def resnet50w4(**kwargs):
 
 def test_resnet():
     imgs = torch.rand(64, 3, 32, 32)
+
+    encoder = resnet34(first_conv3x3=True, remove_first_maxpool=True)
+    assert encoder(imgs).shape == (64, 512)
 
     encoder = resnet50(first_conv3x3=True, remove_first_maxpool=True)
     assert encoder(imgs).shape == (64, 2048)

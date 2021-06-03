@@ -24,12 +24,14 @@ from src.datamodules import cifar10_normalization, stl10_normalization, imagenet
 
 ENCODERS = {
     "resnet18": resnet18,
+    "resnet34": resnet34,
     "resnet50": resnet50,
     "resnet50w2": resnet50w2,
     "resnet50w4": resnet50w4,
 }
 DECODERS = {
     "resnet18": decoder18,
+    "resnet34": decoder34,
     "resnet50": decoder50,
     "resnet50w2": decoder50w2,
     "resnet50w4": decoder50w4,
@@ -251,7 +253,7 @@ if __name__ == "__main__":
     pl.seed_everything(args.seed)
 
     # set hidden dim for resnets
-    if args.encoder_name == "resnet18":
+    if args.encoder_name == "resnet18" or args.encoder_name == "resnet34":
         args.h_dim = 512
     elif args.encoder_name == "resnet50w2":
         args.h_dim = 4096

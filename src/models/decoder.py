@@ -136,7 +136,6 @@ class Decoder(nn.Module):
         input_height: int = 32,
         latent_dim: int = 128,
         h_dim: int = 2048,
-        zero_init_residual: bool = False,
         groups: int = 1,
         widen: int = 1,
         width_per_group: int = 512,
@@ -257,6 +256,11 @@ class Decoder(nn.Module):
 def decoder18(**kwargs):
     # layers list is opposite the encoder (in this case [2, 2, 2, 2])
     return Decoder(BasicBlock, [2, 2, 2, 2], **kwargs)
+
+
+def decoder34(**kwargs):
+    # layers list is opposite the encoder (in this case [3, 6, 4, 3])
+    return Decoder(BasicBlock, [3, 6, 4, 3], **kwargs)
 
 
 def decoder50(**kwargs):
