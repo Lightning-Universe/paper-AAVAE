@@ -349,6 +349,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument('--local_rank', type=int, default=0)  # added to launch 2 ddp script on same node
+    parser.add_argument('--ckpt_path', type=str, default='')
 
     # ae params
     parser.add_argument("--denoising", action="store_true")
@@ -478,7 +479,14 @@ if __name__ == "__main__":
     )
 
     # model init
-    model = VAE(**args.__dict__)
+    if args.ckpt_path == '':
+        model = VAE(**args.__dict__)
+    else:
+        print('____________________________________________________')
+        print('Loading model weights from checkpoint...')
+        print('Args initialized according to this script')
+        print('____________________________________________________')
+        model = VAE.load_from_checkpoint(args.ckpt_path, strict=False, **args.__dict__)
 
     callbacks = [
         LearningRateMonitor(logging_interval="step"),
@@ -499,6 +507,7 @@ if __name__ == "__main__":
         distributed_backend="ddp" if args.gpus > 1 else None,
         precision=16 if args.fp16 else 32,
         callbacks=callbacks,
+        resume_from_checkpoint=None if args.ckpt_path == '' else args.ckpt_path,
     )
 
     trainer.fit(model, dm)
