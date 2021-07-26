@@ -1,5 +1,7 @@
 # AAVAE
 
+Official implementation of the paper "AAVAE: Augmentation-AugmentedVariational Autoencoders"
+
 To train the AAVAE model
 
 1. Create a python virtual environment.
@@ -29,7 +31,7 @@ python src/linear_eval.py --ckpt_path "path\to\saved\file.ckpt"
 
 ### Saved checkpoints
 
-| Model | Dataset | Checkpoint |
-| --- | --- | --- |
-| AAVAE | CIFAR-10 | [checkpoint]() |
-| AAVAE | STL-10 | [checkpoint]() |
+| Model | Dataset | Checkpoint | Downstream acc. |
+| --- | --- | --- | --- |
+| AAVAE | CIFAR-10 | [checkpoint](https://aavae.s3.us-east-2.amazonaws.com/checkpoints/aavae_cifar10.ckpt) | 87.14 |
+| AAVAE | STL-10 | [checkpoint](https://aavae.s3.us-east-2.amazonaws.com/checkpoints/aavae_stl10.ckpt) | 84.72 |
