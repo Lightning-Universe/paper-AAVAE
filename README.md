@@ -1,6 +1,6 @@
 # AAVAE
 
-Official implementation of the paper "AAVAE: Augmentation-AugmentedVariational Autoencoders"
+Official implementation of the paper ["AAVAE: Augmentation-AugmentedVariational Autoencoders"](https://arxiv.org/pdf/2107.12329.pdf)
 
 ![AAVAE](https://aavae.s3.us-east-2.amazonaws.com/images/model.png)
 
